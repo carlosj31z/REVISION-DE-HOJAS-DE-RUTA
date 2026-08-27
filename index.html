@@ -380,6 +380,41 @@
 
   #results{ margin-top:22px; display:none; }
 
+  .results-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:12px;
+    flex-wrap:wrap;
+  }
+  .results-head-label{
+    font-family:var(--font-mono);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--text-faint);
+  }
+  .btn-export{
+    appearance:none;
+    border:1px solid var(--border-strong);
+    background:var(--surface);
+    color:var(--text);
+    font-family:var(--font-body);
+    font-weight:600;
+    font-size:12.5px;
+    padding:8px 14px;
+    border-radius:8px;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    box-shadow:var(--shadow);
+  }
+  .btn-export:hover:not(:disabled){ border-color:var(--accent); color:var(--accent-strong); }
+  .btn-export:disabled{ opacity:.5; cursor:not-allowed; }
+
   .stat-row{
     display:grid;
     grid-template-columns:repeat(5,1fr);
@@ -1031,6 +1066,13 @@
   </section>
 
   <section id="results">
+    <div class="results-head">
+      <span class="results-head-label">Resultado de la comparación</span>
+      <button class="btn-export" id="btnExport">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        Exportar a Excel
+      </button>
+    </div>
     <div class="stat-row" id="statRow"></div>
 
     <section class="panel">
@@ -2176,6 +2218,272 @@ document.getElementById('btnRun').addEventListener('click', () => {
     refreshRunState();
   }, 30);
 });
+
+/* ---------------------------------------------------------------------
+   7) EXPORT TO XLSX — minimal writer (ZIP + OOXML), no dependencies
+--------------------------------------------------------------------- */
+
+const CRC_TABLE = (function(){
+  const table = [];
+  for (let n = 0; n < 256; n++){
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+function crc32(bytes){
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function zipStore(files){
+  // files: [{ path, data: Uint8Array }] — writes a valid ZIP using STORED (uncompressed) entries.
+  const enc = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  files.forEach(f => {
+    const nameBytes = enc.encode(f.path);
+    const crc = crc32(f.data);
+    const size = f.data.length;
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const ldv = new DataView(local.buffer);
+    ldv.setUint32(0, 0x04034b50, true);
+    ldv.setUint16(4, 20, true);
+    ldv.setUint16(6, 0x0800, true);
+    ldv.setUint16(8, 0, true);
+    ldv.setUint16(10, 0, true);
+    ldv.setUint16(12, 0, true);
+    ldv.setUint32(14, crc, true);
+    ldv.setUint32(18, size, true);
+    ldv.setUint32(22, size, true);
+    ldv.setUint16(26, nameBytes.length, true);
+    ldv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+
+    localParts.push(local, f.data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(central.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0x0800, true);
+    cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, 0, true);
+    cdv.setUint16(14, 0, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, size, true);
+    cdv.setUint32(24, size, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint16(30, 0, true);
+    cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true);
+    cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length + f.data.length;
+  });
+
+  const centralStart = offset;
+  let centralSize = 0;
+  centralParts.forEach(p => centralSize += p.length);
+
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true);
+  edv.setUint16(4, 0, true);
+  edv.setUint16(6, 0, true);
+  edv.setUint16(8, files.length, true);
+  edv.setUint16(10, files.length, true);
+  edv.setUint32(12, centralSize, true);
+  edv.setUint32(16, centralStart, true);
+  edv.setUint16(20, 0, true);
+
+  const allParts = [...localParts, ...centralParts, eocd];
+  let total = 0;
+  allParts.forEach(p => total += p.length);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  allParts.forEach(p => { out.set(p, pos); pos += p.length; });
+  return out;
+}
+
+function xmlEscape(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+}
+
+function colIndexToLetter(n){
+  let s = '';
+  n = n + 1;
+  while (n > 0){
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// cellXfs style indices used across the exported workbook
+const XLSX_STYLE = { DEFAULT: 0, HEADER: 1, YELLOW: 2, GREEN: 3, RED: 4, LAVENDER: 5, GRAY: 6 };
+
+function buildSheetXml(headers, rows, rowStyleFn){
+  let rowsXml = '';
+
+  let headerCells = '';
+  headers.forEach((h, ci) => {
+    const ref = colIndexToLetter(ci) + '1';
+    headerCells += '<c r="' + ref + '" s="' + XLSX_STYLE.HEADER + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(h || '') + '</t></is></c>';
+  });
+  rowsXml += '<row r="1">' + headerCells + '</row>';
+
+  rows.forEach((row, ri) => {
+    const rNum = ri + 2;
+    const style = rowStyleFn(row);
+    let cells = '';
+    row.forEach((v, ci) => {
+      const ref = colIndexToLetter(ci) + rNum;
+      if (typeof v === 'number' && isFinite(v)){
+        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
+      } else if (v === '' || v === null || v === undefined){
+        cells += '<c r="' + ref + '" s="' + style + '"/>';
+      } else {
+        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
+      }
+    });
+    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
+  });
+
+  const colCount = headers.length;
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+    '<cols><col min="1" max="' + colCount + '" width="16" customWidth="1"/></cols>' +
+    '<sheetData>' + rowsXml + '</sheetData>' +
+    '</worksheet>';
+}
+
+function buildStylesXml(){
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<fonts count="2"><font><sz val="10.5"/><name val="Calibri"/></font><font><b/><sz val="10.5"/><name val="Calibri"/><color rgb="FF182129"/></font></fonts>' +
+    '<fills count="8">' +
+    '<fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE3E9EF"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2AC"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFC6EFCE"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE0D6F5"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE7EBEF"/><bgColor indexed="64"/></patternFill></fill>' +
+    '</fills>' +
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="7">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="7" borderId="0" xfId="0" applyFill="1"/>' +
+    '</cellXfs>' +
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '</styleSheet>';
+}
+
+function buildWorkbookXml(sheetNames){
+  const sheets = sheetNames.map((name, i) =>
+    '<sheet name="' + xmlEscape(name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'
+  ).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<sheets>' + sheets + '</sheets></workbook>';
+}
+
+function buildExportWorkbook(sheetNames, sheetsData){
+  const enc = new TextEncoder();
+  const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    sheetNames.map((n, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+    '</Types>';
+
+  const rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+    '</Relationships>';
+
+  const wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    sheetNames.map((n, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+    '<Relationship Id="rId' + (sheetNames.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+    '</Relationships>';
+
+  const files = [
+    { path: '[Content_Types].xml', data: enc.encode(contentTypes) },
+    { path: '_rels/.rels', data: enc.encode(rootRels) },
+    { path: 'xl/workbook.xml', data: enc.encode(buildWorkbookXml(sheetNames)) },
+    { path: 'xl/_rels/workbook.xml.rels', data: enc.encode(wbRels) },
+    { path: 'xl/styles.xml', data: enc.encode(buildStylesXml()) },
+  ];
+  sheetsData.forEach((xml, i) => {
+    files.push({ path: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: enc.encode(xml) });
+  });
+
+  return zipStore(files);
+}
+
+function exportComparisonToExcel(){
+  if (!state.compare || !state.antes || !state.despues) return;
+
+  const statusByAntesRow = new Map();
+  const statusByDespuesRow = new Map();
+  state.compare.results.forEach(r => {
+    if (r.rowA) statusByAntesRow.set(r.rowA, r.status);
+    if (r.rowD) statusByDespuesRow.set(r.rowD, r.status);
+  });
+
+  const antesSheetXml = buildSheetXml(state.antes.headers, state.antes.rows, row => {
+    const status = statusByAntesRow.get(row);
+    if (status === 'ok') return XLSX_STYLE.YELLOW;
+    if (status === 'changed') return XLSX_STYLE.GREEN;
+    if (status === 'missing') return XLSX_STYLE.RED;
+    return XLSX_STYLE.GRAY;
+  });
+
+  const despuesSheetXml = buildSheetXml(state.despues.headers, state.despues.rows, row => {
+    const status = statusByDespuesRow.get(row);
+    if (status === 'ok') return XLSX_STYLE.YELLOW;
+    if (status === 'changed') return XLSX_STYLE.GREEN;
+    if (status === 'new') return XLSX_STYLE.LAVENDER;
+    return XLSX_STYLE.GRAY;
+  });
+
+  const bytes = buildExportWorkbook(['Plantilla', 'Reporte SAP'], [antesSheetXml, despuesSheetXml]);
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = 'comparacion-hoja-de-ruta-' + stamp + '.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+document.getElementById('btnExport').addEventListener('click', exportComparisonToExcel);
 
 })();
 </script>
