@@ -444,6 +444,14 @@
     z-index:1;
   }
   table.diff thead th.key-col{ color:var(--accent-strong); }
+  table.diff thead th .col-note{
+    font-family:var(--font-body);
+    font-weight:400;
+    text-transform:none;
+    letter-spacing:0;
+    color:var(--text-faint);
+    font-style:italic;
+  }
   table.diff tbody td{
     padding:7px 10px;
     border-bottom:1px solid var(--border);
@@ -577,7 +585,7 @@
       <div class="table-wrap" id="tableWrap"></div>
     </section>
 
-    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda.</p>
+    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida y no se usan para detectar cambios.</p>
   </section>
 
 </div>
@@ -1026,8 +1034,12 @@ function runComparison(){
       columns.forEach(col => {
         const ai = aIndexByLabel[col];
         const di = dIndexByLabel[col];
-        const va = ai === undefined ? '' : rowA[ai];
-        const vd = di === undefined ? '' : rowD[di];
+        // a column that only exists on one side (e.g. the plantilla reducida omits
+        // Centro / Clave de control / Número modificación / Válido de / Fin de validez,
+        // which SAP fills in on export) can't be compared — never flag it as a change.
+        if (ai === undefined || di === undefined) return;
+        const va = rowA[ai];
+        const vd = rowD[di];
         if (normVal(va) !== normVal(vd)){
           diffs.push({ col, before: va, after: vd });
         }
@@ -1141,7 +1153,12 @@ function renderTable(res){
   const shown = rows.slice(0, maxRows);
 
   let html = '<table class="diff"><thead><tr><th>Estado</th>' +
-    cols.map(c => '<th' + (keySet.has(c) ? ' class="key-col"' : '') + '>' + escapeHtml(c) + '</th>').join('') +
+    cols.map(c => {
+      const soloSap = res.aIndexByLabel[c] === undefined;
+      const soloPlantilla = res.dIndexByLabel[c] === undefined;
+      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : '');
+      return '<th' + (keySet.has(c) ? ' class="key-col"' : '') + '>' + escapeHtml(c) + note + '</th>';
+    }).join('') +
     '</tr></thead><tbody>';
 
   shown.forEach(r => {
