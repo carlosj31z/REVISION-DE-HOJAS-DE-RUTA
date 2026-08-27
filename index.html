@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validador de Hojas de Ruta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f4;
+    --surface:#ffffff;
+    --surface-2:#f6f8fa;
+    --border:#d7dee5;
+    --border-strong:#b9c4cd;
+    --text:#182129;
+    --text-muted:#5b6b78;
+    --text-faint:#8494a1;
+    --accent:#0f5c8c;
+    --accent-strong:#0a4066;
+    --accent-soft:#e2eef6;
+    --ok:#1c7a4c;
+    --ok-soft:#e2f3e9;
+    --warn:#a3620b;
+    --warn-soft:#fbedd6;
+    --danger:#b3261e;
+    --danger-soft:#fbe4e2;
+    --new:#5b3ea6;
+    --new-soft:#eee7f9;
+    --shadow: 0 1px 2px rgba(20,30,40,.06), 0 6px 20px -8px rgba(20,30,40,.12);
+    --radius: 10px;
+    --font-display: "IBM Plex Sans", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12171c;
+      --surface:#1a2129;
+      --surface-2:#212a33;
+      --border:#2c3742;
+      --border-strong:#3d4b57;
+      --text:#e7edf2;
+      --text-muted:#9aacb8;
+      --text-faint:#6d7f8c;
+      --accent:#5fa8d8;
+      --accent-strong:#8ac3e8;
+      --accent-soft:#1c3040;
+      --ok:#5fbf8b;
+      --ok-soft:#173325;
+      --warn:#e0a745;
+      --warn-soft:#3a2c10;
+      --danger:#e8756c;
+      --danger-soft:#3a1e1c;
+      --new:#b09be3;
+      --new-soft:#2a2140;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12171c;
+    --surface:#1a2129;
+    --surface-2:#212a33;
+    --border:#2c3742;
+    --border-strong:#3d4b57;
+    --text:#e7edf2;
+    --text-muted:#9aacb8;
+    --text-faint:#6d7f8c;
+    --accent:#5fa8d8;
+    --accent-strong:#8ac3e8;
+    --accent-soft:#1c3040;
+    --ok:#5fbf8b;
+    --ok-soft:#173325;
+    --warn:#e0a745;
+    --warn-soft:#3a2c10;
+    --danger:#e8756c;
+    --danger-soft:#3a1e1c;
+    --new:#b09be3;
+    --new-soft:#2a2140;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent-soft); }
+
+  .shell{
+    max-width:1180px;
+    margin:0 auto;
+    padding:28px 20px 80px;
+  }
+
+  header.top{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:24px;
+    margin-bottom:22px;
+    flex-wrap:wrap;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  .brand .mark{
+    width:38px;height:38px;
+    border-radius:9px;
+    background:linear-gradient(155deg, var(--accent) 0%, var(--accent-strong) 100%);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:13px;
+    letter-spacing:-.02em;
+    flex-shrink:0;
+    box-shadow: var(--shadow);
+  }
+  .brand h1{
+    font-family:var(--font-display);
+    font-size:19px;
+    font-weight:700;
+    margin:0;
+    letter-spacing:-.01em;
+    text-wrap:balance;
+  }
+  .brand p{
+    margin:2px 0 0;
+    color:var(--text-muted);
+    font-size:12.5px;
+  }
+  .badge-local{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 11px;
+    border:1px solid var(--border-strong);
+    border-radius:999px;
+    background:var(--surface);
+    color:var(--text-muted);
+    font-size:11.5px;
+    font-weight:500;
+    white-space:nowrap;
+  }
+  .badge-local .dot{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--ok);
+    flex-shrink:0;
+  }
+
+  section.panel{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+  }
+
+  .upload-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin-bottom:16px;
+  }
+  @media (max-width:720px){ .upload-grid{ grid-template-columns:1fr; } }
+
+  .dropzone{
+    position:relative;
+    border:1.5px dashed var(--border-strong);
+    border-radius:var(--radius);
+    background:var(--surface);
+    padding:22px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    transition:border-color .15s ease, background .15s ease;
+    cursor:pointer;
+  }
+  .dropzone:hover, .dropzone.dragover{
+    border-color:var(--accent);
+    background:var(--accent-soft);
+  }
+  .dropzone.has-file{
+    border-style:solid;
+    border-color:var(--ok);
+    background:var(--ok-soft);
+  }
+  .dropzone.has-error{
+    border-style:solid;
+    border-color:var(--danger);
+    background:var(--danger-soft);
+  }
+  .dz-head{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .dz-label{
+    font-family:var(--font-mono);
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--text-muted);
+  }
+  .dz-tag{
+    font-size:11px;
+    font-weight:600;
+    padding:2px 8px;
+    border-radius:999px;
+    background:var(--surface-2);
+    color:var(--text-muted);
+  }
+  .dz-tag.antes{ background:var(--accent-soft); color:var(--accent-strong); }
+  .dz-tag.despues{ background:var(--new-soft); color:var(--new); }
+  .dz-title{
+    font-family:var(--font-display);
+    font-weight:600;
+    font-size:14.5px;
+  }
+  .dz-sub{
+    color:var(--text-muted);
+    font-size:12.5px;
+  }
+  .dz-file{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--text);
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:7px 10px;
+    word-break:break-all;
+  }
+  .dz-file .n{ color:var(--text-faint); font-variant-numeric:tabular-nums; flex-shrink:0; }
+  input[type=file]{ display:none; }
+
+  .keybar{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px 18px;
+    padding:14px 18px;
+    border-top:1px solid var(--border);
+    font-size:12.5px;
+  }
+  .keybar .kb-label{
+    font-family:var(--font-mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--text-faint);
+    margin-right:2px;
+  }
+  .chip-check{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 10px 5px 8px;
+    border-radius:7px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    cursor:pointer;
+    user-select:none;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--text-muted);
+  }
+  .chip-check input{ accent-color:var(--accent); }
+  .chip-check.on{
+    border-color:var(--accent);
+    background:var(--accent-soft);
+    color:var(--accent-strong);
+  }
+
+  .actions-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:16px 18px;
+    flex-wrap:wrap;
+  }
+  button.run{
+    appearance:none;
+    border:none;
+    background:var(--accent);
+    color:#fff;
+    font-family:var(--font-display);
+    font-weight:600;
+    font-size:14px;
+    padding:11px 20px;
+    border-radius:8px;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    transition:background .15s ease, transform .05s ease;
+  }
+  button.run:hover:not(:disabled){ background:var(--accent-strong); }
+  button.run:active:not(:disabled){ transform:translateY(1px); }
+  button.run:disabled{
+    background:var(--surface-2);
+    color:var(--text-faint);
+    cursor:not-allowed;
+  }
+  .status-line{
+    font-size:12.5px;
+    color:var(--text-muted);
+    font-family:var(--font-mono);
+  }
+  .status-line.err{ color:var(--danger); }
+
+  #results{ margin-top:22px; display:none; }
+
+  .stat-row{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:12px;
+    margin-bottom:18px;
+  }
+  @media (max-width:900px){ .stat-row{ grid-template-columns:repeat(2,1fr); } }
+  .stat{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    box-shadow:var(--shadow);
+  }
+  .stat .num{
+    font-family:var(--font-mono);
+    font-size:24px;
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:-.01em;
+  }
+  .stat .lbl{
+    margin-top:3px;
+    font-size:11.5px;
+    color:var(--text-muted);
+    font-weight:500;
+  }
+  .stat.ok .num{ color:var(--ok); }
+  .stat.warn .num{ color:var(--warn); }
+  .stat.danger .num{ color:var(--danger); }
+  .stat.new .num{ color:var(--new); }
+
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    flex-wrap:wrap;
+    padding:14px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .tabs{ display:flex; gap:4px; flex-wrap:wrap; }
+  .tab{
+    appearance:none;
+    border:1px solid transparent;
+    background:transparent;
+    color:var(--text-muted);
+    font-family:var(--font-body);
+    font-size:12.5px;
+    font-weight:500;
+    padding:7px 12px;
+    border-radius:7px;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+  }
+  .tab:hover{ background:var(--surface-2); }
+  .tab.active{
+    background:var(--surface-2);
+    border-color:var(--border);
+    color:var(--text);
+    font-weight:600;
+  }
+  .tab .count{
+    font-family:var(--font-mono);
+    font-size:11px;
+    padding:1px 6px;
+    border-radius:999px;
+    background:var(--border);
+    color:var(--text);
+  }
+  .tab.active.t-changed .count{ background:var(--warn-soft); color:var(--warn); }
+  .tab.active.t-missing .count{ background:var(--danger-soft); color:var(--danger); }
+  .tab.active.t-new .count{ background:var(--new-soft); color:var(--new); }
+  .tab.active.t-ok .count{ background:var(--ok-soft); color:var(--ok); }
+
+  .search{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:6px 10px;
+    min-width:220px;
+  }
+  .search input{
+    border:none;
+    background:transparent;
+    outline:none;
+    color:var(--text);
+    font-family:var(--font-body);
+    font-size:12.5px;
+    width:100%;
+  }
+  .search svg{ color:var(--text-faint); flex-shrink:0; }
+
+  .table-wrap{
+    overflow-x:auto;
+    max-height:62vh;
+    overflow-y:auto;
+  }
+  table.diff{
+    border-collapse:collapse;
+    width:100%;
+    font-family:var(--font-mono);
+    font-size:12px;
+  }
+  table.diff thead th{
+    position:sticky;
+    top:0;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--border-strong);
+    text-align:left;
+    padding:9px 10px;
+    font-weight:600;
+    color:var(--text-muted);
+    white-space:nowrap;
+    z-index:1;
+  }
+  table.diff thead th.key-col{ color:var(--accent-strong); }
+  table.diff tbody td{
+    padding:7px 10px;
+    border-bottom:1px solid var(--border);
+    white-space:nowrap;
+    vertical-align:top;
+  }
+  table.diff tbody tr:hover td{ background:var(--surface-2); }
+  table.diff tbody tr.row-changed td.status-cell{ color:var(--warn); }
+  table.diff tbody tr.row-missing td.status-cell{ color:var(--danger); }
+  table.diff tbody tr.row-new td.status-cell{ color:var(--new); }
+  table.diff tbody tr.row-ok td.status-cell{ color:var(--ok); }
+  .status-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-weight:600;
+    font-size:11px;
+  }
+  .status-pill::before{
+    content:"";
+    width:6px;height:6px;border-radius:50%;
+    background:currentColor;
+  }
+  .cell-diff{
+    background:var(--warn-soft);
+    border-radius:4px;
+    padding:2px 5px;
+    margin:-2px -5px;
+    display:inline-block;
+  }
+  .cell-old{
+    color:var(--text-faint);
+    text-decoration:line-through;
+    margin-right:6px;
+  }
+  .cell-new{ color:var(--warn); font-weight:600; }
+  .col-empty{ color:var(--text-faint); }
+
+  .empty-state{
+    padding:60px 20px;
+    text-align:center;
+    color:var(--text-muted);
+  }
+  .empty-state svg{ margin-bottom:10px; opacity:.5; }
+
+  .footnote{
+    margin-top:18px;
+    color:var(--text-faint);
+    font-size:11.5px;
+    text-align:center;
+  }
+
+  .spinner{
+    width:14px;height:14px;
+    border-radius:50%;
+    border:2px solid rgba(255,255,255,.35);
+    border-top-color:#fff;
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce){
+    .spinner{ animation-duration:1.4s; }
+  }
+
+  a{ color:var(--accent); }
+</style>
+
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark">HR</div>
+      <div>
+        <h1>Validador de Hojas de Ruta</h1>
+        <p>Compara la plantilla de importación contra el export de SAP y confirma que los cambios se aplicaron</p>
+      </div>
+    </div>
+    <div class="badge-local"><span class="dot"></span>Procesamiento 100% en tu navegador — nada se sube a un servidor</div>
+  </header>
+
+  <section class="panel" id="uploadPanel">
+    <div style="padding:18px 18px 0;">
+      <div class="upload-grid">
+        <div class="dropzone" id="dzAntes" data-slot="antes">
+          <div class="dz-head">
+            <span class="dz-label">Archivo 1</span>
+            <span class="dz-tag antes">Antes · plantilla</span>
+          </div>
+          <div class="dz-title">Plantilla con los cambios a importar</div>
+          <div class="dz-sub">El Excel que preparaste con las modificaciones, formato hoja de ruta SAP (.xlsx)</div>
+          <div class="dz-file" id="fileAntes" style="display:none;"></div>
+          <input type="file" id="inputAntes" accept=".xlsx" />
+        </div>
+        <div class="dropzone" id="dzDespues" data-slot="despues">
+          <div class="dz-head">
+            <span class="dz-label">Archivo 2</span>
+            <span class="dz-tag despues">Después · export SAP</span>
+          </div>
+          <div class="dz-title">Export de SAP post-modificación</div>
+          <div class="dz-sub">El Excel exportado desde SAP luego de aplicar el cambio (.xlsx)</div>
+          <div class="dz-file" id="fileDespues" style="display:none;"></div>
+          <input type="file" id="inputDespues" accept=".xlsx" />
+        </div>
+      </div>
+    </div>
+
+    <div class="keybar" id="keybar" style="display:none;">
+      <span class="kb-label">Clave de fila (empareja antes ↔ después)</span>
+      <div id="keyChips" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+    </div>
+
+    <div class="actions-row">
+      <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
+      <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
+    </div>
+  </section>
+
+  <section id="results">
+    <div class="stat-row" id="statRow"></div>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div class="tabs" id="tabs"></div>
+        <div class="search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="searchBox" placeholder="Buscar por operación, material, puesto de trabajo…" />
+        </div>
+      </div>
+      <div class="table-wrap" id="tableWrap"></div>
+    </section>
+
+    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda.</p>
+  </section>
+
+</div>
+
+<script>
+(function(){
+
+/* ---------------------------------------------------------------------
+   1) ZIP + XLSX MINIMAL PARSER (no external dependencies)
+--------------------------------------------------------------------- */
+
+function readU16(dv, off){ return dv.getUint16(off, true); }
+function readU32(dv, off){ return dv.getUint32(off, true); }
+
+function findEOCD(buf){
+  const dv = new DataView(buf);
+  const max = Math.min(buf.byteLength, 65557);
+  for (let i = buf.byteLength - 22; i >= buf.byteLength - max && i >= 0; i--){
+    if (readU32(dv, i) === 0x06054b50) return i;
+  }
+  throw new Error('No se encontró el índice del archivo ZIP (EOCD). ¿Es un .xlsx válido?');
+}
+
+async function inflateRaw(bytes){
+  if (typeof DecompressionStream === 'undefined'){
+    throw new Error('Tu navegador no soporta DecompressionStream, necesario para leer archivos .xlsx comprimidos.');
+  }
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+async function unzip(arrayBuffer){
+  const dv = new DataView(arrayBuffer);
+  const bytes = new Uint8Array(arrayBuffer);
+  const eocd = findEOCD(arrayBuffer);
+  const cdEntries = readU16(dv, eocd + 10);
+  let cdOffset = readU32(dv, eocd + 16);
+
+  const files = {};
+  let ptr = cdOffset;
+  for (let i = 0; i < cdEntries; i++){
+    const sig = readU32(dv, ptr);
+    if (sig !== 0x02014b50) break;
+    const compMethod = readU16(dv, ptr + 10);
+    const compSize = readU32(dv, ptr + 20);
+    const nameLen = readU16(dv, ptr + 28);
+    const extraLen = readU16(dv, ptr + 30);
+    const commentLen = readU16(dv, ptr + 32);
+    const localOffset = readU32(dv, ptr + 42);
+    const nameBytes = bytes.subarray(ptr + 46, ptr + 46 + nameLen);
+    const name = new TextDecoder('utf-8').decode(nameBytes);
+
+    files[name] = { compMethod, compSize, localOffset };
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+
+  const out = {};
+  for (const name in files){
+    const f = files[name];
+    const lNameLen = readU16(dv, f.localOffset + 26);
+    const lExtraLen = readU16(dv, f.localOffset + 28);
+    const dataStart = f.localOffset + 30 + lNameLen + lExtraLen;
+    const compData = bytes.subarray(dataStart, dataStart + f.compSize);
+    out[name] = { compMethod: f.compMethod, data: compData };
+  }
+  return out;
+}
+
+async function getEntryText(zip, name){
+  const entry = zip[name];
+  if (!entry) return null;
+  let raw;
+  if (entry.compMethod === 0){
+    raw = entry.data;
+  } else if (entry.compMethod === 8){
+    raw = await inflateRaw(entry.data);
+  } else {
+    throw new Error('Método de compresión no soportado en el .xlsx (' + entry.compMethod + ').');
+  }
+  return new TextDecoder('utf-8').decode(raw);
+}
+
+function colLetterToIndex(letters){
+  let n = 0;
+  for (let i = 0; i < letters.length; i++){
+    n = n * 26 + (letters.charCodeAt(i) - 64);
+  }
+  return n - 1;
+}
+
+function cellRefToCol(ref){
+  const m = /^([A-Z]+)(\d+)$/.exec(ref);
+  return m ? colLetterToIndex(m[1]) : -1;
+}
+
+// Excel serial date (1900 system, with the classic leap-year bug) -> JS Date (UTC)
+function excelSerialToDate(serial){
+  const utcDays = Math.floor(serial - 25569);
+  const utcValue = utcDays * 86400;
+  const date = new Date(utcValue * 1000);
+  const fraction = serial - Math.floor(serial);
+  if (fraction > 0){
+    date.setUTCSeconds(Math.round(fraction * 86400));
+  }
+  return date;
+}
+
+function fmtDate(d){
+  const y = d.getUTCFullYear();
+  if (y <= 1899) return '';
+  if (y >= 9999) return '9999-12-31';
+  const m = String(d.getUTCMonth()+1).padStart(2,'0');
+  const day = String(d.getUTCDate()).padStart(2,'0');
+  return y + '-' + m + '-' + day;
+}
+
+async function parseXlsx(arrayBuffer){
+  const zip = await unzip(arrayBuffer);
+
+  // shared strings
+  const sharedStrings = [];
+  const sstXml = await getEntryText(zip, 'xl/sharedStrings.xml');
+  if (sstXml){
+    const doc = new DOMParser().parseFromString(sstXml, 'application/xml');
+    const siNodes = doc.getElementsByTagName('si');
+    for (let i = 0; i < siNodes.length; i++){
+      const tNodes = siNodes[i].getElementsByTagName('t');
+      let text = '';
+      for (let j = 0; j < tNodes.length; j++) text += tNodes[j].textContent;
+      sharedStrings.push(text);
+    }
+  }
+
+  // styles -> which cellXfs indexes are date-formatted
+  const dateStyleIds = new Set();
+  const stylesXml = await getEntryText(zip, 'xl/styles.xml');
+  if (stylesXml){
+    const doc = new DOMParser().parseFromString(stylesXml, 'application/xml');
+    const customNumFmts = {};
+    const numFmtNodes = doc.getElementsByTagName('numFmt');
+    for (let i = 0; i < numFmtNodes.length; i++){
+      const id = numFmtNodes[i].getAttribute('numFmtId');
+      const code = (numFmtNodes[i].getAttribute('formatCode') || '').toLowerCase();
+      customNumFmts[id] = code;
+    }
+    const builtinDate = new Set([14,15,16,17,18,19,20,21,22,27,28,29,30,31,32,33,34,35,36,45,46,47,50,51,52,53,54,55,56,57,58]);
+    const cellXfsParent = doc.getElementsByTagName('cellXfs')[0];
+    if (cellXfsParent){
+      const xfNodes = cellXfsParent.getElementsByTagName('xf');
+      for (let i = 0; i < xfNodes.length; i++){
+        const fmtId = parseInt(xfNodes[i].getAttribute('numFmtId') || '0', 10);
+        let isDate = false;
+        if (builtinDate.has(fmtId)) isDate = true;
+        else if (customNumFmts[fmtId]){
+          const code = customNumFmts[fmtId];
+          if (/[dy]/.test(code) && !/general/.test(code)) isDate = true;
+        }
+        if (isDate) dateStyleIds.add(i);
+      }
+    }
+  }
+
+  // workbook.xml -> sheet order + rels
+  const wbXml = await getEntryText(zip, 'xl/workbook.xml');
+  const relsXml = await getEntryText(zip, 'xl/_rels/workbook.xml.rels');
+  const sheets = [];
+  if (wbXml){
+    const doc = new DOMParser().parseFromString(wbXml, 'application/xml');
+    const relMap = {};
+    if (relsXml){
+      const rdoc = new DOMParser().parseFromString(relsXml, 'application/xml');
+      const relNodes = rdoc.getElementsByTagName('Relationship');
+      for (let i = 0; i < relNodes.length; i++){
+        relMap[relNodes[i].getAttribute('Id')] = relNodes[i].getAttribute('Target');
+      }
+    }
+    const sheetNodes = doc.getElementsByTagName('sheet');
+    for (let i = 0; i < sheetNodes.length; i++){
+      const name = sheetNodes[i].getAttribute('name');
+      const rid = sheetNodes[i].getAttribute('r:id') || sheetNodes[i].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');
+      let target = relMap[rid] || ('worksheets/sheet' + (i+1) + '.xml');
+      if (target.startsWith('/')) target = target.slice(1);
+      else target = 'xl/' + target.replace(/^\.?\//, '');
+      sheets.push({ name, path: target });
+    }
+  }
+  if (sheets.length === 0) sheets.push({ name: 'Sheet1', path: 'xl/worksheets/sheet1.xml' });
+
+  const sheetXml = await getEntryText(zip, sheets[0].path);
+  if (!sheetXml) throw new Error('No se pudo leer la hoja "' + sheets[0].name + '" dentro del archivo.');
+  const doc = new DOMParser().parseFromString(sheetXml, 'application/xml');
+  const rowNodes = doc.getElementsByTagName('row');
+
+  const rows = [];
+  let maxCol = 0;
+  for (let r = 0; r < rowNodes.length; r++){
+    const rowNode = rowNodes[r];
+    const rowIdx = parseInt(rowNode.getAttribute('r'), 10) - 1;
+    const cellNodes = rowNode.getElementsByTagName('c');
+    const rowArr = rows[rowIdx] || (rows[rowIdx] = []);
+    for (let c = 0; c < cellNodes.length; c++){
+      const cn = cellNodes[c];
+      const ref = cn.getAttribute('r');
+      const colIdx = ref ? cellRefToCol(ref) : c;
+      const type = cn.getAttribute('t');
+      const styleIdx = cn.getAttribute('s') ? parseInt(cn.getAttribute('s'), 10) : 0;
+      let value = null;
+
+      if (type === 'inlineStr'){
+        const isNode = cn.getElementsByTagName('is')[0];
+        value = isNode ? isNode.textContent : '';
+      } else {
+        const vNode = cn.getElementsByTagName('v')[0];
+        const raw = vNode ? vNode.textContent : '';
+        if (type === 's'){
+          value = sharedStrings[parseInt(raw, 10)] ?? '';
+        } else if (type === 'b'){
+          value = raw === '1' ? 'VERDADERO' : 'FALSO';
+        } else if (type === 'str'){
+          value = raw;
+        } else if (raw === ''){
+          value = null;
+        } else {
+          const num = parseFloat(raw);
+          if (dateStyleIds.has(styleIdx) && isFinite(num) && num > 0){
+            value = fmtDate(excelSerialToDate(num));
+          } else {
+            value = num;
+          }
+        }
+      }
+      rowArr[colIdx] = value;
+      if (colIdx > maxCol) maxCol = colIdx;
+    }
+  }
+
+  const grid = [];
+  for (let r = 0; r < rows.length; r++){
+    const src = rows[r] || [];
+    const rowOut = new Array(maxCol + 1);
+    for (let c = 0; c <= maxCol; c++){
+      const v = src[c];
+      rowOut[c] = (v === undefined || v === null) ? '' : v;
+    }
+    grid.push(rowOut);
+  }
+  while (grid.length && grid[grid.length-1].every(v => v === '')) grid.pop();
+
+  return { sheetName: sheets[0].name, grid };
+}
+
+/* ---------------------------------------------------------------------
+   2) APP STATE + FILE HANDLING
+--------------------------------------------------------------------- */
+
+const state = {
+  antes: null,   // { fileName, headers, labels, rows: [ {...values by header index} ] }
+  despues: null,
+  keyIndices: [],
+  compare: null, // computed diff result
+  activeTab: 'changed',
+  search: ''
+};
+
+const DEFAULT_KEY_NAMES = ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Centro', 'Operación'];
+
+function buildLabels(headers){
+  const seen = {};
+  return headers.map((h, i) => {
+    const name = (h || ('Columna ' + (i+1))).toString().trim();
+    seen[name] = (seen[name] || 0) + 1;
+    return seen[name] > 1 ? (name + ' #' + seen[name]) : name;
+  });
+}
+
+function toParsed(fileName, sheetName, gridRaw){
+  const headers = gridRaw[0] || [];
+  const labels = buildLabels(headers);
+  const rows = gridRaw.slice(1).filter(r => r.some(v => v !== ''));
+  return { fileName, sheetName, headers, labels, rows };
+}
+
+function setDropzoneState(slot, mode, text){
+  const dz = document.getElementById(slot === 'antes' ? 'dzAntes' : 'dzDespues');
+  dz.classList.remove('has-file', 'has-error');
+  if (mode === 'file') dz.classList.add('has-file');
+  if (mode === 'error') dz.classList.add('has-error');
+  const fileBox = document.getElementById(slot === 'antes' ? 'fileAntes' : 'fileDespues');
+  if (text){
+    fileBox.style.display = 'flex';
+    fileBox.innerHTML = text;
+  } else {
+    fileBox.style.display = 'none';
+  }
+}
+
+async function handleFile(slot, file){
+  if (!file) return;
+  setDropzoneState(slot, 'loading', '<span class="spinner" style="border-color: rgba(0,0,0,.15); border-top-color: var(--accent);"></span> Leyendo ' + escapeHtml(file.name) + '…');
+  try {
+    const buf = await file.arrayBuffer();
+    const { sheetName, grid } = await parseXlsx(buf);
+    const parsed = toParsed(file.name, sheetName, grid);
+    if (!parsed.headers.length){
+      throw new Error('No se detectaron encabezados en la primera fila.');
+    }
+    state[slot] = parsed;
+    const rowCount = parsed.rows.length;
+    setDropzoneState(slot, 'file',
+      '<span class="n">' + rowCount.toLocaleString('es') + ' filas</span><span>' + escapeHtml(file.name) + '</span>');
+  } catch (err) {
+    state[slot] = null;
+    setDropzoneState(slot, 'error', '⚠ ' + escapeHtml(err.message || String(err)));
+  }
+  refreshKeyBar();
+  refreshRunState();
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+['antes','despues'].forEach(slot => {
+  const dz = document.getElementById(slot === 'antes' ? 'dzAntes' : 'dzDespues');
+  const input = document.getElementById(slot === 'antes' ? 'inputAntes' : 'inputDespues');
+  dz.addEventListener('click', () => input.click());
+  input.addEventListener('change', e => handleFile(slot, e.target.files[0]));
+  ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, e => {
+    e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover');
+  }));
+  ['dragleave','drop'].forEach(evt => dz.addEventListener(evt, e => {
+    e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover');
+  }));
+  dz.addEventListener('drop', e => {
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFile(slot, file);
+  });
+});
+
+/* ---------------------------------------------------------------------
+   3) KEY COLUMN SELECTION
+--------------------------------------------------------------------- */
+
+function refreshKeyBar(){
+  const keybar = document.getElementById('keybar');
+  const wrap = document.getElementById('keyChips');
+  if (!state.antes){ keybar.style.display = 'none'; return; }
+
+  keybar.style.display = 'flex';
+  wrap.innerHTML = '';
+
+  if (!state.keyIndices.length){
+    state.keyIndices = state.antes.labels
+      .map((label, i) => ({ label, i }))
+      .filter(x => DEFAULT_KEY_NAMES.includes(x.label))
+      .map(x => x.i);
+    if (!state.keyIndices.length && state.antes.labels.length){
+      state.keyIndices = [0];
+    }
+  }
+
+  state.antes.labels.forEach((label, i) => {
+    const on = state.keyIndices.includes(i);
+    const chip = document.createElement('label');
+    chip.className = 'chip-check' + (on ? ' on' : '');
+    chip.innerHTML = '<input type="checkbox" ' + (on ? 'checked' : '') + ' /> ' + escapeHtml(label);
+    chip.querySelector('input').addEventListener('change', e => {
+      if (e.target.checked) state.keyIndices.push(i);
+      else state.keyIndices = state.keyIndices.filter(x => x !== i);
+      chip.classList.toggle('on', e.target.checked);
+      refreshRunState();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function refreshRunState(){
+  const btn = document.getElementById('btnRun');
+  const status = document.getElementById('statusLine');
+  status.classList.remove('err');
+  if (!state.antes || !state.despues){
+    btn.disabled = true;
+    status.textContent = 'Sube los dos archivos para comenzar.';
+    return;
+  }
+  if (!state.keyIndices.length){
+    btn.disabled = true;
+    status.textContent = 'Selecciona al menos una columna clave para emparejar filas.';
+    status.classList.add('err');
+    return;
+  }
+  btn.disabled = false;
+  status.textContent = state.antes.rows.length.toLocaleString('es') + ' filas en plantilla · ' +
+    state.despues.rows.length.toLocaleString('es') + ' filas en export SAP. Listo para comparar.';
+}
+
+/* ---------------------------------------------------------------------
+   4) COMPARISON ENGINE
+--------------------------------------------------------------------- */
+
+function normVal(v){
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number'){
+    return Math.round(v * 1e6) / 1e6;
+  }
+  return String(v).trim();
+}
+
+function buildKey(row, labels, keyLabels){
+  return keyLabels.map(lbl => {
+    const idx = labels.indexOf(lbl);
+    return idx === -1 ? '' : normVal(row[idx]);
+  }).join('␟');
+}
+
+function runComparison(){
+  const a = state.antes, d = state.despues;
+  const keyLabels = state.keyIndices.map(i => a.labels[i]);
+
+  // union of columns present in "antes" (by label); columns only in "después" get appended
+  const columns = a.labels.slice();
+  d.labels.forEach(lbl => { if (!columns.includes(lbl)) columns.push(lbl); });
+
+  const dIndexByLabel = {};
+  d.labels.forEach((lbl, i) => { if (!(lbl in dIndexByLabel)) dIndexByLabel[lbl] = i; });
+  const aIndexByLabel = {};
+  a.labels.forEach((lbl, i) => { if (!(lbl in aIndexByLabel)) aIndexByLabel[lbl] = i; });
+
+  const despuesMap = new Map();
+  d.rows.forEach(row => {
+    const k = buildKey(row, d.labels, keyLabels);
+    if (!despuesMap.has(k)) despuesMap.set(k, row);
+  });
+
+  const matchedKeys = new Set();
+  const results = [];
+
+  a.rows.forEach(rowA => {
+    const k = buildKey(rowA, a.labels, keyLabels);
+    const rowD = despuesMap.get(k);
+    if (rowD){
+      matchedKeys.add(k);
+      const diffs = [];
+      columns.forEach(col => {
+        const ai = aIndexByLabel[col];
+        const di = dIndexByLabel[col];
+        const va = ai === undefined ? '' : rowA[ai];
+        const vd = di === undefined ? '' : rowD[di];
+        if (normVal(va) !== normVal(vd)){
+          diffs.push({ col, before: va, after: vd });
+        }
+      });
+      results.push({
+        key: k,
+        status: diffs.length ? 'changed' : 'ok',
+        rowA, rowD, diffs
+      });
+    } else {
+      results.push({ key: k, status: 'missing', rowA, rowD: null, diffs: [] });
+    }
+  });
+
+  d.rows.forEach(rowD => {
+    const k = buildKey(rowD, d.labels, keyLabels);
+    if (!matchedKeys.has(k)){
+      // avoid double-adding duplicate keys within despues itself
+      const already = results.some(r => r.status === 'new' && r.key === k);
+      if (!already){
+        results.push({ key: k, status: 'new', rowA: null, rowD, diffs: [] });
+      }
+    }
+  });
+
+  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels };
+}
+
+/* ---------------------------------------------------------------------
+   5) RENDER RESULTS
+--------------------------------------------------------------------- */
+
+const TAB_DEFS = [
+  { id: 'changed', label: 'Cambios detectados', cls: 't-changed' },
+  { id: 'missing', label: 'No efectuados en SAP', cls: 't-missing' },
+  { id: 'new', label: 'Nuevas / inesperadas', cls: 't-new' },
+  { id: 'ok', label: 'Sin cambios', cls: 't-ok' },
+  { id: 'all', label: 'Todas', cls: 't-all' },
+];
+
+function statusPillHtml(status){
+  const map = {
+    changed: ['Modificada', 'var(--warn)'],
+    missing: ['No efectuada', 'var(--danger)'],
+    new: ['Nueva', 'var(--new)'],
+    ok: ['Correcta', 'var(--ok)'],
+  };
+  const [text, color] = map[status];
+  return '<span class="status-pill" style="color:' + color + ';">' + text + '</span>';
+}
+
+function renderStats(res){
+  const counts = { changed:0, missing:0, new:0, ok:0 };
+  res.results.forEach(r => counts[r.status]++);
+  const total = res.results.length;
+  const stats = [
+    { cls:'', num: total, lbl: 'Filas evaluadas' },
+    { cls:'ok', num: counts.ok, lbl: 'Correctas — sin diferencias' },
+    { cls:'warn', num: counts.changed, lbl: 'Con cambios' },
+    { cls:'danger', num: counts.missing, lbl: 'No efectuadas en SAP' },
+    { cls:'new', num: counts.new, lbl: 'Nuevas en export SAP' },
+  ];
+  document.getElementById('statRow').innerHTML = stats.map(s =>
+    '<div class="stat ' + s.cls + '"><div class="num">' + s.num.toLocaleString('es') + '</div><div class="lbl">' + s.lbl + '</div></div>'
+  ).join('');
+  return counts;
+}
+
+function renderTabs(counts, total){
+  const wrap = document.getElementById('tabs');
+  wrap.innerHTML = TAB_DEFS.map(t => {
+    const count = t.id === 'all' ? total : counts[t.id];
+    const active = state.activeTab === t.id;
+    return '<button class="tab ' + t.cls + (active ? ' active' : '') + '" data-tab="' + t.id + '">' +
+      t.label + ' <span class="count">' + count.toLocaleString('es') + '</span></button>';
+  }).join('');
+  wrap.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.activeTab = btn.getAttribute('data-tab');
+      renderAll();
+    });
+  });
+}
+
+function cellDisplay(v){
+  if (v === '' || v === null || v === undefined) return '<span class="col-empty">—</span>';
+  return escapeHtml(String(v));
+}
+
+function renderTable(res){
+  const wrap = document.getElementById('tableWrap');
+  let rows = res.results.filter(r => state.activeTab === 'all' ? true : r.status === state.activeTab);
+
+  const q = state.search.trim().toLowerCase();
+  if (q){
+    rows = rows.filter(r => {
+      const src = r.rowA || r.rowD;
+      const labels = r.rowA ? state.antes.labels : state.despues.labels;
+      return labels.some((lbl, i) => String(src[i] ?? '').toLowerCase().includes(q));
+    });
+  }
+
+  if (!rows.length){
+    wrap.innerHTML = '<div class="empty-state"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div>No hay filas en esta categoría' + (q ? ' para tu búsqueda.' : '.') + '</div></div>';
+    return;
+  }
+
+  const keySet = new Set(res.keyLabels);
+  const cols = res.columns;
+  const maxRows = 1500;
+  const shown = rows.slice(0, maxRows);
+
+  let html = '<table class="diff"><thead><tr><th>Estado</th>' +
+    cols.map(c => '<th' + (keySet.has(c) ? ' class="key-col"' : '') + '>' + escapeHtml(c) + '</th>').join('') +
+    '</tr></thead><tbody>';
+
+  shown.forEach(r => {
+    const diffByCol = {};
+    r.diffs.forEach(d => diffByCol[d.col] = d);
+    html += '<tr class="row-' + r.status + '">';
+    html += '<td class="status-cell">' + statusPillHtml(r.status) + '</td>';
+    cols.forEach(col => {
+      const ai = res.aIndexByLabel[col];
+      const di = res.dIndexByLabel[col];
+      if (r.status === 'missing'){
+        const v = ai === undefined ? '' : r.rowA[ai];
+        html += '<td>' + cellDisplay(v) + '</td>';
+      } else if (r.status === 'new'){
+        const v = di === undefined ? '' : r.rowD[di];
+        html += '<td>' + cellDisplay(v) + '</td>';
+      } else if (diffByCol[col]){
+        const dd = diffByCol[col];
+        html += '<td><span class="cell-diff"><span class="cell-old">' + cellDisplay(dd.before) + '</span><span class="cell-new">' + cellDisplay(dd.after) + '</span></span></td>';
+      } else {
+        const v = di !== undefined ? r.rowD[di] : (ai !== undefined ? r.rowA[ai] : '');
+        html += '<td>' + cellDisplay(v) + '</td>';
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  if (rows.length > maxRows){
+    html += '<div style="padding:10px 18px; color:var(--text-faint); font-size:11.5px;">Mostrando ' + maxRows + ' de ' + rows.length.toLocaleString('es') + ' filas. Usa la búsqueda para acotar.</div>';
+  }
+  wrap.innerHTML = html;
+}
+
+function renderAll(){
+  if (!state.compare) return;
+  const counts = renderStats(state.compare);
+  renderTabs(counts, state.compare.results.length);
+  renderTable(state.compare);
+}
+
+document.getElementById('searchBox').addEventListener('input', e => {
+  state.search = e.target.value;
+  renderTable(state.compare);
+});
+
+document.getElementById('btnRun').addEventListener('click', () => {
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Comparando…';
+  setTimeout(() => {
+    try {
+      state.compare = runComparison();
+      state.activeTab = 'changed';
+      document.getElementById('results').style.display = 'block';
+      renderAll();
+      document.getElementById('results').scrollIntoView({ behavior:'smooth', block:'start' });
+    } catch (err){
+      const status = document.getElementById('statusLine');
+      status.textContent = 'Error al comparar: ' + (err.message || err);
+      status.classList.add('err');
+    }
+    btn.innerHTML = 'Comparar hojas de ruta';
+    refreshRunState();
+  }, 30);
+});
+
+})();
+</script>
+</body>
+</html>
