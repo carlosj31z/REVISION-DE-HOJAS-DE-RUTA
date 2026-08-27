@@ -150,11 +150,15 @@
     font-size:11.5px;
     font-weight:500;
     white-space:nowrap;
+    max-width:100%;
   }
   .badge-local .dot{
     width:6px;height:6px;border-radius:50%;
     background:var(--ok);
     flex-shrink:0;
+  }
+  @media (max-width:560px){
+    .badge-local{ white-space:normal; }
   }
 
   section.panel{
@@ -245,22 +249,70 @@
   .dz-file .n{ color:var(--text-faint); font-variant-numeric:tabular-nums; flex-shrink:0; }
   input[type=file]{ display:none; }
 
-  .keybar{
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:10px 18px;
-    padding:14px 18px;
+  .config-panel{
     border-top:1px solid var(--border);
-    font-size:12.5px;
   }
-  .keybar .kb-label{
+  .config-panel summary{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 18px;
+    cursor:pointer;
+    list-style:none;
+    user-select:none;
+  }
+  .config-panel summary::-webkit-details-marker{ display:none; }
+  .config-panel summary .chev{
+    color:var(--text-faint);
+    flex-shrink:0;
+    transition:transform .15s ease;
+    display:flex;
+  }
+  .config-panel[open] summary .chev{ transform:rotate(90deg); }
+  .config-summary-text{
+    font-size:12px;
+    color:var(--text-muted);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    flex:1;
+    min-width:0;
+  }
+  .config-summary-text b{ color:var(--text); font-weight:600; }
+  .config-summary-edit{
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--accent);
+    flex-shrink:0;
+  }
+  .config-body{
+    padding:2px 18px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .config-group-label{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    margin-bottom:8px;
+  }
+  .config-group-label .cg-title{
     font-family:var(--font-mono);
     font-size:11px;
+    font-weight:600;
     text-transform:uppercase;
     letter-spacing:.06em;
     color:var(--text-faint);
-    margin-right:2px;
+  }
+  .config-group-label .cg-hint{
+    font-size:11.5px;
+    color:var(--text-faint);
+  }
+  .chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
   }
   .chip-check{
     display:inline-flex;
@@ -281,6 +333,11 @@
     border-color:var(--accent);
     background:var(--accent-soft);
     color:var(--accent-strong);
+  }
+  .chip-check.on.highlight-on{
+    border-color:var(--warn);
+    background:var(--warn-soft);
+    color:var(--warn);
   }
 
   .actions-row{
@@ -331,11 +388,20 @@
   }
   @media (max-width:900px){ .stat-row{ grid-template-columns:repeat(2,1fr); } }
   .stat{
+    position:relative;
     background:var(--surface);
     border:1px solid var(--border);
     border-radius:var(--radius);
-    padding:14px 16px;
+    padding:14px 16px 14px 18px;
     box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .stat::before{
+    content:"";
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:3px;
+    background:var(--border-strong);
   }
   .stat .num{
     font-family:var(--font-mono);
@@ -351,9 +417,27 @@
     font-weight:500;
   }
   .stat.ok .num{ color:var(--ok); }
+  .stat.ok::before{ background:var(--ok); }
   .stat.warn .num{ color:var(--warn); }
+  .stat.warn::before{ background:var(--warn); }
   .stat.danger .num{ color:var(--danger); }
+  .stat.danger::before{ background:var(--danger); }
   .stat.new .num{ color:var(--new); }
+  .stat.new::before{ background:var(--new); }
+
+  table.diff th.col-highlight, table.diff td.col-highlight{
+    background:var(--warn-soft);
+  }
+  table.diff thead th.col-highlight{ color:var(--warn); }
+  table.diff tbody tr:hover td.col-highlight{ background:var(--warn-soft); filter:brightness(0.97); }
+  .col-highlight-tag{
+    font-family:var(--font-body);
+    font-weight:400;
+    text-transform:none;
+    letter-spacing:0;
+    color:var(--warn);
+    font-style:italic;
+  }
 
   .toolbar{
     display:flex;
@@ -748,10 +832,29 @@
       </div>
     </div>
 
-    <div class="keybar" id="keybar" style="display:none;">
-      <span class="kb-label">Clave de fila (empareja antes ↔ después)</span>
-      <div id="keyChips" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
-    </div>
+    <details class="config-panel" id="configPanel" style="display:none;">
+      <summary>
+        <span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"/></svg></span>
+        <span class="config-summary-text" id="configSummaryText"></span>
+        <span class="config-summary-edit">Ajustar</span>
+      </summary>
+      <div class="config-body">
+        <div>
+          <div class="config-group-label">
+            <span class="cg-title">Clave de fila</span>
+            <span class="cg-hint">identifica la misma operación en ambos archivos</span>
+          </div>
+          <div class="chip-row" id="keyChips"></div>
+        </div>
+        <div>
+          <div class="config-group-label">
+            <span class="cg-title">Resaltar columnas</span>
+            <span class="cg-hint">se marcan en la tabla y en el detalle de cada fila</span>
+          </div>
+          <div class="chip-row" id="highlightChips"></div>
+        </div>
+      </div>
+    </details>
 
     <div class="actions-row">
       <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
@@ -1065,12 +1168,14 @@ const state = {
   antes: null,   // { fileName, headers, labels, rows: [ {...values by header index} ] }
   despues: null,
   keyIndices: [],
+  highlightIndices: [],
   compare: null, // computed diff result
-  activeTab: 'changed',
+  activeTab: 'ok',
   search: ''
 };
 
 const DEFAULT_KEY_NAMES = ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Centro', 'Operación'];
+const DEFAULT_HIGHLIGHT_PATTERN = /^DatPref(\s#\d+)?$/;
 
 function buildLabels(headers){
   const seen = {};
@@ -1120,7 +1225,7 @@ async function handleFile(slot, file){
     state[slot] = null;
     setDropzoneState(slot, 'error', '⚠ ' + escapeHtml(err.message || String(err)));
   }
-  refreshKeyBar();
+  refreshConfigPanel();
   refreshRunState();
 }
 
@@ -1146,16 +1251,44 @@ function escapeHtml(s){
 });
 
 /* ---------------------------------------------------------------------
-   3) KEY COLUMN SELECTION
+   3) KEY COLUMN SELECTION + HIGHLIGHTED COLUMNS
 --------------------------------------------------------------------- */
 
-function refreshKeyBar(){
-  const keybar = document.getElementById('keybar');
-  const wrap = document.getElementById('keyChips');
-  if (!state.antes){ keybar.style.display = 'none'; return; }
-
-  keybar.style.display = 'flex';
+function buildChipRow(containerId, labels, selectedIndices, onToggle, chipExtraClass){
+  const wrap = document.getElementById(containerId);
   wrap.innerHTML = '';
+  labels.forEach((label, i) => {
+    const on = selectedIndices.includes(i);
+    const chip = document.createElement('label');
+    chip.className = 'chip-check' + (on ? ' on' + (chipExtraClass ? ' ' + chipExtraClass : '') : '');
+    chip.innerHTML = '<input type="checkbox" ' + (on ? 'checked' : '') + ' /> ' + escapeHtml(label);
+    chip.querySelector('input').addEventListener('change', e => {
+      onToggle(i, e.target.checked);
+      chip.classList.toggle('on', e.target.checked);
+      chip.classList.toggle(chipExtraClass || '', e.target.checked && !!chipExtraClass);
+      refreshRunState();
+      refreshConfigSummary();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function refreshConfigSummary(){
+  const el = document.getElementById('configSummaryText');
+  if (!state.antes){ el.textContent = ''; return; }
+  const keyNames = state.keyIndices.map(i => state.antes.labels[i]);
+  const hlNames = state.highlightIndices.map(i => state.antes.labels[i]);
+  let text = '<b>Clave:</b> ' + (keyNames.join(', ') || '—');
+  if (hlNames.length){
+    text += '  ·  <b>Resaltando:</b> ' + hlNames.join(', ');
+  }
+  el.innerHTML = text;
+}
+
+function refreshConfigPanel(){
+  const panel = document.getElementById('configPanel');
+  if (!state.antes){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
 
   if (!state.keyIndices.length){
     state.keyIndices = state.antes.labels
@@ -1166,20 +1299,24 @@ function refreshKeyBar(){
       state.keyIndices = [0];
     }
   }
+  if (!state.highlightIndices.length){
+    state.highlightIndices = state.antes.labels
+      .map((label, i) => ({ label, i }))
+      .filter(x => DEFAULT_HIGHLIGHT_PATTERN.test(x.label))
+      .map(x => x.i);
+  }
 
-  state.antes.labels.forEach((label, i) => {
-    const on = state.keyIndices.includes(i);
-    const chip = document.createElement('label');
-    chip.className = 'chip-check' + (on ? ' on' : '');
-    chip.innerHTML = '<input type="checkbox" ' + (on ? 'checked' : '') + ' /> ' + escapeHtml(label);
-    chip.querySelector('input').addEventListener('change', e => {
-      if (e.target.checked) state.keyIndices.push(i);
-      else state.keyIndices = state.keyIndices.filter(x => x !== i);
-      chip.classList.toggle('on', e.target.checked);
-      refreshRunState();
-    });
-    wrap.appendChild(chip);
+  buildChipRow('keyChips', state.antes.labels, state.keyIndices, (i, checked) => {
+    if (checked) state.keyIndices.push(i);
+    else state.keyIndices = state.keyIndices.filter(x => x !== i);
   });
+  buildChipRow('highlightChips', state.antes.labels, state.highlightIndices, (i, checked) => {
+    if (checked) state.highlightIndices.push(i);
+    else state.highlightIndices = state.highlightIndices.filter(x => x !== i);
+    if (state.compare) renderAll();
+  }, 'highlight-on');
+
+  refreshConfigSummary();
 }
 
 function refreshRunState(){
@@ -1283,7 +1420,8 @@ function runComparison(){
     }
   });
 
-  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels };
+  const highlightLabels = new Set(state.highlightIndices.map(i => a.labels[i]));
+  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels, highlightLabels };
 }
 
 /* ---------------------------------------------------------------------
@@ -1291,19 +1429,19 @@ function runComparison(){
 --------------------------------------------------------------------- */
 
 const TAB_DEFS = [
-  { id: 'changed', label: 'Cambios detectados', cls: 't-changed' },
+  { id: 'ok', label: 'Cambios efectuados', cls: 't-ok' },
   { id: 'missing', label: 'No efectuados en SAP', cls: 't-missing' },
+  { id: 'changed', label: 'Con diferencias', cls: 't-changed' },
   { id: 'new', label: 'Nuevas / inesperadas', cls: 't-new' },
-  { id: 'ok', label: 'Sin cambios', cls: 't-ok' },
   { id: 'all', label: 'Todas', cls: 't-all' },
 ];
 
 function statusPillHtml(status){
   const map = {
-    changed: ['Modificada', 'var(--warn)'],
+    changed: ['Con diferencias', 'var(--warn)'],
     missing: ['No efectuada', 'var(--danger)'],
     new: ['Nueva', 'var(--new)'],
-    ok: ['Correcta', 'var(--ok)'],
+    ok: ['Efectuada', 'var(--ok)'],
   };
   const [text, color] = map[status];
   return '<span class="status-pill" style="color:' + color + ';">' + text + '</span>';
@@ -1315,9 +1453,9 @@ function renderStats(res){
   const total = res.results.length;
   const stats = [
     { cls:'', num: total, lbl: 'Filas evaluadas' },
-    { cls:'ok', num: counts.ok, lbl: 'Correctas — sin diferencias' },
-    { cls:'warn', num: counts.changed, lbl: 'Con cambios' },
+    { cls:'ok', num: counts.ok, lbl: 'Cambios efectuados' },
     { cls:'danger', num: counts.missing, lbl: 'No efectuadas en SAP' },
+    { cls:'warn', num: counts.changed, lbl: 'Con diferencias' },
     { cls:'new', num: counts.new, lbl: 'Nuevas en export SAP' },
   ];
   document.getElementById('statRow').innerHTML = stats.map(s =>
@@ -1374,8 +1512,10 @@ function renderTable(res){
     cols.map(c => {
       const soloSap = res.aIndexByLabel[c] === undefined;
       const soloPlantilla = res.dIndexByLabel[c] === undefined;
-      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : '');
-      return '<th' + (keySet.has(c) ? ' class="key-col"' : '') + '>' + escapeHtml(c) + note + '</th>';
+      const isHl = res.highlightLabels.has(c);
+      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : (isHl ? '<br><span class="col-highlight-tag">resaltada</span>' : ''));
+      const cls = [keySet.has(c) ? 'key-col' : '', isHl ? 'col-highlight' : ''].filter(Boolean).join(' ');
+      return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + escapeHtml(c) + note + '</th>';
     }).join('') +
     '</tr></thead><tbody>';
 
@@ -1387,18 +1527,19 @@ function renderTable(res){
     cols.forEach(col => {
       const ai = res.aIndexByLabel[col];
       const di = res.dIndexByLabel[col];
+      const tdCls = res.highlightLabels.has(col) ? ' class="col-highlight"' : '';
       if (r.status === 'missing'){
         const v = ai === undefined ? '' : r.rowA[ai];
-        html += '<td>' + cellDisplay(v) + '</td>';
+        html += '<td' + tdCls + '>' + cellDisplay(v) + '</td>';
       } else if (r.status === 'new'){
         const v = di === undefined ? '' : r.rowD[di];
-        html += '<td>' + cellDisplay(v) + '</td>';
+        html += '<td' + tdCls + '>' + cellDisplay(v) + '</td>';
       } else if (diffByCol[col]){
         const dd = diffByCol[col];
-        html += '<td><span class="cell-diff"><span class="cell-old">' + cellDisplay(dd.before) + '</span><span class="cell-new">' + cellDisplay(dd.after) + '</span></span></td>';
+        html += '<td' + tdCls + '><span class="cell-diff"><span class="cell-old">' + cellDisplay(dd.before) + '</span><span class="cell-new">' + cellDisplay(dd.after) + '</span></span></td>';
       } else {
         const v = di !== undefined ? r.rowD[di] : (ai !== undefined ? r.rowA[ai] : '');
-        html += '<td>' + cellDisplay(v) + '</td>';
+        html += '<td' + tdCls + '>' + cellDisplay(v) + '</td>';
       }
     });
     html += '</tr>';
@@ -1421,10 +1562,6 @@ function renderTable(res){
    6) DETAIL MODAL — "versus" plantilla vs SAP for a single row
 --------------------------------------------------------------------- */
 
-function isTimeColumn(label){
-  return /^(DatPref|Unidad valor prefij\.|Clase de actividad)(\s#\d+)?$/.test(label);
-}
-
 function fieldValHtml(status, side, val){
   if (status === 'missing' && side === 'despues') return '<span class="field-val na">no existe en SAP</span>';
   if (status === 'new' && side === 'antes') return '<span class="field-val na">no existe en plantilla</span>';
@@ -1440,7 +1577,7 @@ function openDetailModal(r, res){
   const body = document.getElementById('modalBody');
   const diffCount = document.getElementById('modalDiffCount');
 
-  const statusLabels = { changed: 'Modificada', missing: 'No efectuada en SAP', new: 'Nueva en export SAP', ok: 'Correcta — sin diferencias' };
+  const statusLabels = { changed: 'Con diferencias', missing: 'No efectuada en SAP', new: 'Nueva en export SAP', ok: 'Cambio efectuado' };
   const opLabel = res.aIndexByLabel['Operación'] !== undefined && r.rowA ? r.rowA[res.aIndexByLabel['Operación']]
     : (res.dIndexByLabel['Operación'] !== undefined && r.rowD ? r.rowD[res.dIndexByLabel['Operación']] : '');
   const descLabel = res.aIndexByLabel['Descripción'] !== undefined && r.rowA ? r.rowA[res.aIndexByLabel['Descripción']]
@@ -1460,7 +1597,7 @@ function openDetailModal(r, res){
     const va = ai !== undefined && r.rowA ? r.rowA[ai] : '';
     const vd = di !== undefined && r.rowD ? r.rowD[di] : '';
     const changed = !!diffByCol[col];
-    return { col, va, vd, changed, isTime: isTimeColumn(col), hasBoth: ai !== undefined && di !== undefined };
+    return { col, va, vd, changed, isTime: res.highlightLabels.has(col), hasBoth: ai !== undefined && di !== undefined };
   });
 
   const changedCount = fields.filter(f => f.changed).length;
@@ -1475,7 +1612,7 @@ function openDetailModal(r, res){
     }
     body.innerHTML = list.map(f => {
       const rowCls = 'field-row' + (f.changed ? ' is-changed' : '') + (f.isTime ? ' is-time' : '');
-      const timeTag = f.isTime ? '<span class="time-tag">Tiempo</span>' : '';
+      const timeTag = f.isTime ? '<span class="time-tag">Destacado</span>' : '';
       let leftHtml, rightHtml;
       if (f.changed){
         leftHtml = '<span class="field-val changed-old">' + cellDisplay(f.va) + '</span>';
@@ -1533,7 +1670,9 @@ document.getElementById('btnRun').addEventListener('click', () => {
   setTimeout(() => {
     try {
       state.compare = runComparison();
-      state.activeTab = 'changed';
+      const counts = { changed:0, missing:0, new:0, ok:0 };
+      state.compare.results.forEach(r => counts[r.status]++);
+      state.activeTab = counts.missing ? 'missing' : counts.changed ? 'changed' : counts.new ? 'new' : 'ok';
       document.getElementById('results').style.display = 'block';
       renderAll();
       document.getElementById('results').scrollIntoView({ behavior:'smooth', block:'start' });
