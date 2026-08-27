@@ -2444,6 +2444,99 @@ function buildExportWorkbook(sheetNames, sheetsData){
   return zipStore(files);
 }
 
+function buildSummarySheetXml(){
+  const a = state.antes, d = state.despues, res = state.compare;
+  const counts = { ok: 0, changed: 0, missing: 0, new: 0 };
+  res.results.forEach(r => counts[r.status]++);
+  const total = res.results.length;
+  const pct = n => total ? Math.round((n / total) * 1000) / 10 : 0;
+
+  // Breakdown per hoja de ruta (Grupo hojas ruta + Cont.grupo HRuta)
+  const matGroups = new Map();
+  res.results.forEach(r => {
+    const row = r.rowA || r.rowD;
+    const labels = r.rowA ? a.labels : d.labels;
+    const gIdx = labels.indexOf('Grupo hojas ruta');
+    const cIdx = labels.indexOf('Cont.grupo HRuta');
+    const dIdx = labels.indexOf('Descripción');
+    const g = gIdx !== -1 ? row[gIdx] : '';
+    const c = cIdx !== -1 ? row[cIdx] : '';
+    const desc = dIdx !== -1 ? row[dIdx] : '';
+    const key = g + '␟' + c;
+    if (!matGroups.has(key)) matGroups.set(key, { g, c, desc, total: 0, ok: 0, changed: 0, missing: 0, new: 0 });
+    const m = matGroups.get(key);
+    m.total++;
+    m[r.status]++;
+  });
+  const matRows = [...matGroups.values()].sort((x, y) => {
+    const px = x.total ? x.ok / x.total : 1;
+    const py = y.total ? y.ok / y.total : 1;
+    return px - py;
+  });
+
+  // Breakdown per campo (columna) — solo entre filas con diferencias
+  const fieldCounts = new Map();
+  res.results.forEach(r => {
+    if (r.status !== 'changed') return;
+    r.diffs.forEach(dd => fieldCounts.set(dd.col, (fieldCounts.get(dd.col) || 0) + 1));
+  });
+  const fieldRows = [...fieldCounts.entries()].sort((x, y) => y[1] - x[1]);
+
+  const L = [];
+  L.push({ t: 'title', c: ['Resumen de comparación de hojas de ruta'] });
+  L.push({ t: 'meta', c: ['Plantilla', a.fileName] });
+  L.push({ t: 'meta', c: ['Export SAP', d.fileName] });
+  L.push({ t: 'meta', c: ['Generado', new Date().toLocaleString('es')] });
+  L.push({ t: 'blank' });
+  L.push({ t: 'header', c: ['Estado', 'Filas', '% del total'] });
+  L.push({ t: 'data', c: ['Cambios efectuados', counts.ok, pct(counts.ok) + '%'] });
+  L.push({ t: 'data', c: ['No efectuados en SAP', counts.missing, pct(counts.missing) + '%'] });
+  L.push({ t: 'data', c: ['Con diferencias', counts.changed, pct(counts.changed) + '%'] });
+  L.push({ t: 'data', c: ['Nuevas / inesperadas', counts.new, pct(counts.new) + '%'] });
+  L.push({ t: 'data', c: ['Total', total, '100%'] });
+  L.push({ t: 'blank' });
+  L.push({ t: 'title', c: ['Desglose por hoja de ruta (peores primero)'] });
+  L.push({ t: 'header', c: ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Operaciones', 'Efectuadas', 'Con diferencias', 'No efectuadas', 'Nuevas', '% efectuado'] });
+  matRows.forEach(m => {
+    L.push({ t: 'data', c: [m.g, m.c, m.desc, m.total, m.ok, m.changed, m.missing, m.new, (m.total ? Math.round((m.ok / m.total) * 1000) / 10 : 0) + '%'] });
+  });
+  L.push({ t: 'blank' });
+  L.push({ t: 'title', c: ['Campos con más diferencias entre plantilla y SAP'] });
+  L.push({ t: 'header', c: ['Campo', 'Filas con diferencia en este campo'] });
+  if (fieldRows.length){
+    fieldRows.forEach(([col, n]) => L.push({ t: 'data', c: [col, n] }));
+  } else {
+    L.push({ t: 'data', c: ['(sin diferencias de campo)', 0] });
+  }
+
+  let rowsXml = '';
+  let rNum = 1;
+  let maxCols = 3;
+  L.forEach(item => { if (item.c) maxCols = Math.max(maxCols, item.c.length); });
+
+  L.forEach(item => {
+    if (item.t === 'blank'){ rNum++; return; }
+    const style = (item.t === 'title' || item.t === 'header') ? XLSX_STYLE.HEADER : XLSX_STYLE.DEFAULT;
+    let cells = '';
+    (item.c || []).forEach((v, ci) => {
+      const ref = colIndexToLetter(ci) + rNum;
+      if (typeof v === 'number' && isFinite(v)){
+        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
+      } else {
+        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
+      }
+    });
+    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
+    rNum++;
+  });
+
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<cols><col min="1" max="' + maxCols + '" width="22" customWidth="1"/></cols>' +
+    '<sheetData>' + rowsXml + '</sheetData>' +
+    '</worksheet>';
+}
+
 function exportComparisonToExcel(){
   if (!state.compare || !state.antes || !state.despues) return;
 
@@ -2470,7 +2563,9 @@ function exportComparisonToExcel(){
     return XLSX_STYLE.GRAY;
   });
 
-  const bytes = buildExportWorkbook(['Plantilla', 'Reporte SAP'], [antesSheetXml, despuesSheetXml]);
+  const summarySheetXml = buildSummarySheetXml();
+
+  const bytes = buildExportWorkbook(['Plantilla', 'Reporte SAP', 'Resumen'], [antesSheetXml, despuesSheetXml, summarySheetXml]);
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
