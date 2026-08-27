@@ -605,6 +605,157 @@
 
   table.diff tbody tr{ cursor:pointer; }
 
+  #reviewPanel{ margin-top:16px; }
+  .review-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:14px;
+    padding:18px 20px 14px;
+    flex-wrap:wrap;
+  }
+  .review-title{
+    font-family:var(--font-display);
+    font-size:15.5px;
+    font-weight:700;
+    margin:0 0 3px;
+  }
+  .review-sub{
+    margin:0;
+    font-size:12px;
+    color:var(--text-muted);
+  }
+  .review-sub b{ color:var(--text); font-weight:600; }
+  .review-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 12px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:600;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .review-badge.good{ background:var(--ok-soft); color:var(--ok); }
+  .review-badge.bad{ background:var(--danger-soft); color:var(--danger); }
+
+  .review-body{
+    padding:0 20px 18px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  .review-block-title{
+    font-family:var(--font-mono);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--text-faint);
+    margin-bottom:8px;
+  }
+
+  .header-check{
+    border:1px solid var(--border);
+    border-radius:9px;
+    padding:12px 14px;
+    background:var(--surface-2);
+  }
+  .header-check.ok{ border-color:var(--ok); background:var(--ok-soft); }
+  .header-check.bad{ border-color:var(--danger); background:var(--danger-soft); }
+  .header-check-line{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12.5px;
+    font-weight:600;
+  }
+  .header-check.ok .header-check-line{ color:var(--ok); }
+  .header-check.bad .header-check-line{ color:var(--danger); }
+  .header-issue-list{
+    margin:10px 0 0;
+    padding:0;
+    list-style:none;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .header-issue-list li{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    color:var(--text);
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:6px 9px;
+  }
+  .header-issue-list .pos{ color:var(--text-faint); margin-right:6px; }
+  .header-issue-list .exp{ color:var(--ok); }
+  .header-issue-list .got{ color:var(--danger); }
+
+  .rule-row{
+    border:1px solid var(--border);
+    border-radius:9px;
+    margin-bottom:8px;
+    overflow:hidden;
+  }
+  .rule-row:last-child{ margin-bottom:0; }
+  .rule-summary{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:11px 14px;
+    cursor:pointer;
+    list-style:none;
+    user-select:none;
+  }
+  .rule-row[data-hasviol="0"] .rule-summary{ cursor:default; }
+  .rule-summary::-webkit-details-marker{ display:none; }
+  .rule-icon{
+    width:18px;height:18px;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .rule-icon.ok{ background:var(--ok-soft); color:var(--ok); }
+  .rule-icon.bad{ background:var(--danger-soft); color:var(--danger); }
+  .rule-icon.na{ background:var(--surface-2); color:var(--text-faint); }
+  .rule-text{ flex:1; min-width:0; }
+  .rule-title{ font-size:12.5px; font-weight:600; color:var(--text); }
+  .rule-desc{ font-size:11.5px; color:var(--text-muted); margin-top:1px; }
+  .rule-count{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    font-weight:600;
+    flex-shrink:0;
+  }
+  .rule-row[data-status="bad"] .rule-count{ color:var(--danger); }
+  .rule-row[data-status="ok"] .rule-count{ color:var(--ok); }
+  .rule-row[data-status="na"] .rule-count{ color:var(--text-faint); }
+  .rule-chev{ color:var(--text-faint); flex-shrink:0; transition:transform .15s ease; display:flex; }
+  .rule-row[open] .rule-chev{ transform:rotate(90deg); }
+  .rule-violations{
+    border-top:1px solid var(--border);
+    padding:10px 14px 12px 42px;
+    background:var(--surface-2);
+  }
+  .rule-viol-item{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    padding:5px 0;
+    border-bottom:1px dashed var(--border);
+    color:var(--text);
+  }
+  .rule-viol-item:last-child{ border-bottom:none; }
+  .rule-viol-item .rk{ color:var(--text-muted); }
+  .rule-viol-more{
+    font-size:11.5px;
+    color:var(--text-faint);
+    padding-top:6px;
+    font-style:italic;
+  }
+
   .modal-backdrop{
     display:none;
     position:fixed;
@@ -859,6 +1010,23 @@
     <div class="actions-row">
       <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
       <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
+    </div>
+  </section>
+
+  <section class="panel" id="reviewPanel" style="display:none;">
+    <div class="review-head">
+      <div>
+        <h2 class="review-title">Revisión de plantilla</h2>
+        <p class="review-sub">Formato de encabezados y reglas de negocio de la hoja de ruta, evaluados sobre <b id="reviewFileName"></b></p>
+      </div>
+      <span class="review-badge" id="reviewBadge"></span>
+    </div>
+    <div class="review-body">
+      <div class="review-block" id="reviewHeaderBlock"></div>
+      <div class="review-block">
+        <div class="review-block-title">Reglas de negocio</div>
+        <div id="reviewRules"></div>
+      </div>
     </div>
   </section>
 
@@ -1227,6 +1395,7 @@ async function handleFile(slot, file){
   }
   refreshConfigPanel();
   refreshRunState();
+  if (slot === 'antes') renderTemplateReview();
 }
 
 function escapeHtml(s){
@@ -1317,6 +1486,328 @@ function refreshConfigPanel(){
   }, 'highlight-on');
 
   refreshConfigSummary();
+}
+
+/* ---------------------------------------------------------------------
+   3b) REVISIÓN DE PLANTILLA — formato de encabezados + reglas de negocio
+--------------------------------------------------------------------- */
+
+const HR_BLOCK = ['DatPref', 'Unidad valor prefij.', 'Clase de actividad'];
+function repeatBlock(n){ return Array(n).fill(HR_BLOCK).flat(); }
+
+const TEMPLATE_REDUCED = [
+  'Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Operación', 'Indicador fase',
+  'Operación Superior', 'Puesto de trabajo', 'Texto breve operación', 'Cantidad base', 'Unidad medida op.',
+  ...repeatBlock(6)
+];
+const TEMPLATE_FULL = [
+  'Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Centro', 'Clave de control', 'Operación', 'Indicador fase',
+  'Operación Superior', 'Puesto de trabajo', 'Texto breve operación', 'Cantidad base', 'Unidad medida op.',
+  ...repeatBlock(6),
+  'Número modificación', 'Válido de', 'Fin de validez'
+];
+
+function reviewHeaders(rawHeaders){
+  const norm = s => (s === null || s === undefined ? '' : String(s)).trim();
+  const headers = rawHeaders.map(norm);
+
+  function diffAgainst(tpl){
+    const issues = [];
+    const len = Math.max(tpl.length, headers.length);
+    for (let i = 0; i < len; i++){
+      const expected = tpl[i];
+      const actual = headers[i];
+      if (expected === undefined){
+        issues.push({ type: 'extra', pos: i + 1, actual });
+      } else if (actual === undefined || actual === ''){
+        issues.push({ type: 'missing', pos: i + 1, expected });
+      } else if (actual !== expected){
+        issues.push({ type: 'mismatch', pos: i + 1, expected, actual });
+      }
+    }
+    return issues;
+  }
+
+  const fullIssues = diffAgainst(TEMPLATE_FULL);
+  const reducedIssues = diffAgainst(TEMPLATE_REDUCED);
+  const useReduced = reducedIssues.length <= fullIssues.length;
+  const tpl = useReduced ? TEMPLATE_REDUCED : TEMPLATE_FULL;
+  return {
+    formatName: useReduced ? 'Plantilla reducida (' + TEMPLATE_REDUCED.length + ' columnas)' : 'Plantilla completa (' + TEMPLATE_FULL.length + ' columnas)',
+    expectedLength: tpl.length,
+    actualLength: headers.length,
+    issues: useReduced ? reducedIssues : fullIssues
+  };
+}
+
+function colIndicesByBase(labels, base){
+  return labels.map((l, i) => ({ l, i })).filter(x => x.l === base || x.l.indexOf(base + ' #') === 0).map(x => x.i);
+}
+
+function groupRowsByKey(parsed){
+  const gi = parsed.labels.indexOf('Grupo hojas ruta');
+  const ci = parsed.labels.indexOf('Cont.grupo HRuta');
+  if (gi === -1 || ci === -1) return null;
+  const groups = new Map();
+  parsed.rows.forEach((row, idx) => {
+    const key = String(row[gi] ?? '').trim() + '-' + String(row[ci] ?? '').trim();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ row, idx });
+  });
+  return { groups, gi, ci };
+}
+
+function rowLabel(parsed, row){
+  const gi = parsed.labels.indexOf('Grupo hojas ruta');
+  const ci = parsed.labels.indexOf('Cont.grupo HRuta');
+  const oi = parsed.labels.indexOf('Operación');
+  const g = gi !== -1 ? row[gi] : '?';
+  const c = ci !== -1 ? row[ci] : '?';
+  const o = oi !== -1 ? row[oi] : '?';
+  return 'Grupo ' + g + '-' + c + ' · Operación ' + o;
+}
+
+const BUSINESS_RULES = [
+  {
+    id: 'op0010-datpref-cero',
+    title: 'Operación 0010 sin tiempos de proceso',
+    desc: 'En la operación 0010, todos los DatPref deben ser 0.000',
+    run(parsed){
+      const oi = parsed.labels.indexOf('Operación');
+      const dIdx = colIndicesByBase(parsed.labels, 'DatPref');
+      if (oi === -1 || !dIdx.length) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        if (String(row[oi]).trim() !== '0010') return;
+        total++;
+        const bad = dIdx.filter(i => { const v = row[i]; return !(v === 0 || v === '' || v === null || v === undefined); });
+        if (bad.length){
+          const details = bad.map(i => (parsed.labels[i]) + '=' + row[i]).join(', ');
+          violations.push({ key: rowLabel(parsed, row), detail: details + ' (debería ser 0.000)' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'op0010-sin-fase',
+    title: 'Operación 0010 sin indicador de fase ni operación superior',
+    desc: 'La operación base 0010 no debe traer Indicador fase ni Operación Superior',
+    run(parsed){
+      const oi = parsed.labels.indexOf('Operación');
+      const fi = parsed.labels.indexOf('Indicador fase');
+      const si = parsed.labels.indexOf('Operación Superior');
+      if (oi === -1 || (fi === -1 && si === -1)) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        if (String(row[oi]).trim() !== '0010') return;
+        total++;
+        const badF = fi !== -1 && row[fi] !== '' && row[fi] !== null && row[fi] !== undefined;
+        const badS = si !== -1 && row[si] !== '' && row[si] !== null && row[si] !== undefined;
+        if (badF || badS){
+          const parts = [];
+          if (badF) parts.push('Indicador fase="' + row[fi] + '"');
+          if (badS) parts.push('Operación Superior="' + row[si] + '"');
+          violations.push({ key: rowLabel(parsed, row), detail: parts.join(', ') + ' (deberían estar vacíos)' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'primera-operacion-0010',
+    title: 'La primera operación de cada material es 0010',
+    desc: 'Dentro de cada Grupo hojas ruta + Cont.grupo HRuta, la operación de menor número debe ser 0010',
+    run(parsed){
+      const g = groupRowsByKey(parsed);
+      const oi = parsed.labels.indexOf('Operación');
+      if (!g || oi === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      g.groups.forEach((entries, key) => {
+        total++;
+        const sorted = entries.slice().sort((a, b) => parseInt(a.row[oi], 10) - parseInt(b.row[oi], 10));
+        const first = sorted[0].row[oi];
+        if (String(first).trim() !== '0010'){
+          violations.push({ key: 'Grupo ' + key, detail: 'primera operación es "' + first + '", se esperaba "0010"' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'operacion-multiplo-10',
+    title: 'Numeración de operación en múltiplos de 10',
+    desc: 'Cada Operación debe ser un número múltiplo de 10 (0010, 0020, 0030…)',
+    run(parsed){
+      const oi = parsed.labels.indexOf('Operación');
+      if (oi === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        total++;
+        const n = parseInt(row[oi], 10);
+        if (!isFinite(n) || n % 10 !== 0){
+          violations.push({ key: rowLabel(parsed, row), detail: 'Operación="' + row[oi] + '" no es múltiplo de 10' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'operacion-sin-duplicar',
+    title: 'Sin operaciones duplicadas por material',
+    desc: 'La misma Operación no debe repetirse dentro del mismo Grupo hojas ruta + Cont.grupo HRuta',
+    run(parsed){
+      const g = groupRowsByKey(parsed);
+      const oi = parsed.labels.indexOf('Operación');
+      if (!g || oi === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      g.groups.forEach((entries, key) => {
+        total++;
+        const seen = new Map();
+        entries.forEach(e => {
+          const op = String(e.row[oi]).trim();
+          seen.set(op, (seen.get(op) || 0) + 1);
+        });
+        seen.forEach((count, op) => {
+          if (count > 1) violations.push({ key: 'Grupo ' + key, detail: 'Operación "' + op + '" aparece ' + count + ' veces' });
+        });
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'puesto-no-vacio',
+    title: 'Puesto de trabajo obligatorio',
+    desc: 'Ninguna fila puede tener el Puesto de trabajo vacío',
+    run(parsed){
+      const pi = parsed.labels.indexOf('Puesto de trabajo');
+      if (pi === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        total++;
+        if (row[pi] === '' || row[pi] === null || row[pi] === undefined){
+          violations.push({ key: rowLabel(parsed, row), detail: 'Puesto de trabajo vacío' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'cantidad-base-positiva',
+    title: 'Cantidad base mayor a 0',
+    desc: 'La Cantidad base de cada operación debe ser un número mayor a 0',
+    run(parsed){
+      const qi = parsed.labels.indexOf('Cantidad base');
+      if (qi === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        total++;
+        const v = row[qi];
+        if (!(typeof v === 'number' && v > 0)){
+          violations.push({ key: rowLabel(parsed, row), detail: 'Cantidad base="' + v + '"' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'descripcion-consistente',
+    title: 'Descripción uniforme por material',
+    desc: 'Todas las filas del mismo Grupo hojas ruta + Cont.grupo HRuta deben compartir la misma Descripción',
+    run(parsed){
+      const g = groupRowsByKey(parsed);
+      const di = parsed.labels.indexOf('Descripción');
+      if (!g || di === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      g.groups.forEach((entries, key) => {
+        total++;
+        const vals = [...new Set(entries.map(e => String(e.row[di]).trim()))];
+        if (vals.length > 1){
+          violations.push({ key: 'Grupo ' + key, detail: 'valores distintos: ' + vals.map(v => '"' + v + '"').join(' / ') });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
+    id: 'unidad-medida-consistente',
+    title: 'Unidad de medida uniforme por material',
+    desc: 'Todas las filas del mismo Grupo hojas ruta + Cont.grupo HRuta deben compartir la misma Unidad medida op.',
+    run(parsed){
+      const g = groupRowsByKey(parsed);
+      const ui = parsed.labels.indexOf('Unidad medida op.');
+      if (!g || ui === -1) return { applicable: false };
+      let total = 0; const violations = [];
+      g.groups.forEach((entries, key) => {
+        total++;
+        const vals = [...new Set(entries.map(e => String(e.row[ui]).trim()))];
+        if (vals.length > 1){
+          violations.push({ key: 'Grupo ' + key, detail: 'valores distintos: ' + vals.map(v => '"' + v + '"').join(' / ') });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  }
+];
+
+function renderTemplateReview(){
+  const panel = document.getElementById('reviewPanel');
+  if (!state.antes){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  document.getElementById('reviewFileName').textContent = state.antes.fileName;
+
+  const headerReview = reviewHeaders(state.antes.headers);
+  const ruleResults = BUSINESS_RULES.map(rule => Object.assign({ id: rule.id, title: rule.title, desc: rule.desc }, rule.run(state.antes)));
+
+  const headerOk = headerReview.issues.length === 0;
+  const ruleProblems = ruleResults.filter(r => r.applicable && r.violations.length > 0).length;
+  const allOk = headerOk && ruleProblems === 0;
+
+  const badge = document.getElementById('reviewBadge');
+  if (allOk){
+    badge.className = 'review-badge good';
+    badge.textContent = '✓ Formato y reglas correctas';
+  } else {
+    const parts = [];
+    if (!headerOk) parts.push(headerReview.issues.length + ' en encabezados');
+    if (ruleProblems) parts.push(ruleProblems + ' regla' + (ruleProblems === 1 ? '' : 's') + ' con observaciones');
+    badge.className = 'review-badge bad';
+    badge.textContent = '⚠ ' + parts.join(' · ');
+  }
+
+  const hb = document.getElementById('reviewHeaderBlock');
+  const issuesHtml = headerReview.issues.slice(0, 20).map(iss => {
+    if (iss.type === 'mismatch') return '<li><span class="pos">Col. ' + iss.pos + '</span>se esperaba <span class="exp">"' + escapeHtml(iss.expected) + '"</span> y se encontró <span class="got">"' + escapeHtml(iss.actual) + '"</span></li>';
+    if (iss.type === 'missing') return '<li><span class="pos">Col. ' + iss.pos + '</span>falta la columna <span class="exp">"' + escapeHtml(iss.expected) + '"</span></li>';
+    return '<li><span class="pos">Col. ' + iss.pos + '</span>columna no reconocida: <span class="got">"' + escapeHtml(iss.actual) + '"</span></li>';
+  }).join('');
+  const moreCount = headerReview.issues.length - 20;
+  hb.className = 'header-check ' + (headerOk ? 'ok' : 'bad');
+  hb.innerHTML =
+    '<div class="header-check-line">' + (headerOk ? '✓' : '⚠') + ' ' + escapeHtml(headerReview.formatName) +
+    (headerOk ? ' — encabezados y orden correctos' : ' — ' + headerReview.issues.length + ' diferencia' + (headerReview.issues.length === 1 ? '' : 's') + ' respecto al formato esperado') +
+    '</div>' +
+    (issuesHtml ? '<ul class="header-issue-list">' + issuesHtml + (moreCount > 0 ? '<li>+' + moreCount + ' más</li>' : '') + '</ul>' : '');
+
+  const rulesWrap = document.getElementById('reviewRules');
+  rulesWrap.innerHTML = ruleResults.map((r, idx) => {
+    const status = !r.applicable ? 'na' : (r.violations.length ? 'bad' : 'ok');
+    const icon = status === 'na' ? '–' : (status === 'bad' ? '⚠' : '✓');
+    const countText = status === 'na' ? 'No aplica' : (status === 'bad' ? r.violations.length + ' de ' + r.total : 'Cumple (' + r.total + ')');
+    const hasViol = status === 'bad' ? '1' : '0';
+    const violHtml = r.violations && r.violations.length ? r.violations.slice(0, 15).map(v =>
+      '<div class="rule-viol-item"><span class="rk">' + escapeHtml(v.key) + '</span> — ' + escapeHtml(v.detail) + '</div>'
+    ).join('') + (r.violations.length > 15 ? '<div class="rule-viol-more">+' + (r.violations.length - 15) + ' más</div>' : '') : '';
+    return '<details class="rule-row" data-status="' + status + '" data-hasviol="' + hasViol + '">' +
+      '<summary class="rule-summary">' +
+        '<span class="rule-icon ' + status + '">' + icon + '</span>' +
+        '<span class="rule-text"><div class="rule-title">' + escapeHtml(r.title) + '</div><div class="rule-desc">' + escapeHtml(r.desc) + '</div></span>' +
+        '<span class="rule-count">' + countText + '</span>' +
+        (hasViol === '1' ? '<span class="rule-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"/></svg></span>' : '') +
+      '</summary>' +
+      (violHtml ? '<div class="rule-violations">' + violHtml + '</div>' : '') +
+      '</details>';
+  }).join('');
 }
 
 function refreshRunState(){
