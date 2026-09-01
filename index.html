@@ -1876,12 +1876,36 @@ function refreshRunState(){
    4) COMPARISON ENGINE
 --------------------------------------------------------------------- */
 
+function roundNum(n){
+  return Math.round(n * 1e6) / 1e6;
+}
+
+// Parses a "plain looking" numeric string tolerating a leading +/-, a decimal
+// point OR comma (never both — that combination is treated as text, since it's
+// ambiguous whether it's thousands-grouping or a locale swap), and leading
+// zeros (SAP codes like "0010" resolve to the number 10 for comparison, same
+// as an actual numeric 10 cell would). Anything else (letters, multiple
+// separators, spaces) is left as text so codes like "FSESFA04" never get
+// numeric-coerced by accident.
+function parseNumericLoose(s){
+  if (!/^[+-]?\d+([.,]\d+)?$/.test(s)) return null;
+  const n = parseFloat(s.replace(',', '.'));
+  return isFinite(n) ? n : null;
+}
+
+// Normalizes a cell value so the SAME underlying number compares equal no
+// matter how each file happened to store it: a real numeric cell, a numeric
+// value saved as text, with a comma or a dot as decimal separator, with or
+// without leading zeros, with extra whitespace, etc.
 function normVal(v){
   if (v === null || v === undefined) return '';
   if (typeof v === 'number'){
-    return Math.round(v * 1e6) / 1e6;
+    return isFinite(v) ? roundNum(v) : '';
   }
-  return String(v).trim();
+  const s = String(v).trim();
+  if (s === '') return '';
+  const n = parseNumericLoose(s);
+  return n !== null ? roundNum(n) : s;
 }
 
 function buildKey(row, labels, keyLabels){
