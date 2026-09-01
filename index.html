@@ -1197,7 +1197,7 @@
       <div class="table-wrap" id="tableWrap"></div>
     </section>
 
-    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Los números se comparan a precisión completa, sin redondear. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida, y la columna Z del export de SAP se excluye a propósito — ninguna de estas se usa para detectar cambios. Las filas del export de SAP cuya hoja de ruta y contador no existen en la plantilla se descartan por completo (SAP exporta por rango y suele traer material de más que no se pidió modificar). Haz clic en cualquier fila para ver el detalle campo a campo.</p>
+    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Los números se comparan a precisión completa, sin redondear. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida, y DatPref #6 se excluye a propósito (se acordó que ese bloque no se completa) — ninguna de estas se usa para detectar cambios. Las filas del export de SAP cuya hoja de ruta y contador no existen en la plantilla se descartan por completo (SAP exporta por rango y suele traer material de más que no se pidió modificar). Haz clic en cualquier fila para ver el detalle campo a campo.</p>
   </section>
 
 </div>
@@ -2210,12 +2210,11 @@ function runComparison(){
   const columns = a.labels.slice();
   d.labels.forEach(lbl => { if (!columns.includes(lbl)) columns.push(lbl); });
 
-  // Columna Z (26ª columna) del export de SAP: se excluye de la detección de
-  // cambios a pedido — se sigue mostrando en la tabla, pero nunca marca una
-  // fila como "con diferencias".
-  const excludedLabels = new Set();
-  const zIdx = colLetterToIndex('Z');
-  if (d.labels[zIdx] !== undefined) excludedLabels.add(d.labels[zIdx]);
+  // DatPref #6 se excluye de la detección de cambios: se acordó que ese
+  // sexto bloque de tiempos nunca se va a completar, así que cualquier
+  // diferencia ahí es ruido, no una modificación real. Se sigue mostrando
+  // en la tabla, pero nunca marca una fila como "con diferencias".
+  const excludedLabels = new Set(['DatPref #6']);
 
   const dIndexByLabel = {};
   d.labels.forEach((lbl, i) => { if (!(lbl in dIndexByLabel)) dIndexByLabel[lbl] = i; });
