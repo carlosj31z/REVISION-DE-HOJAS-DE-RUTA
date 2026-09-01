@@ -692,6 +692,80 @@
     flex-direction:column;
     gap:16px;
   }
+  .review-block-title-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-bottom:8px;
+  }
+  .review-block-title-row .review-block-title{ margin-bottom:0; }
+  .review-material-search{ min-width:220px; flex:0 1 280px; }
+  .material-group{
+    border:1px solid var(--border);
+    border-radius:9px;
+    margin-bottom:8px;
+    overflow:hidden;
+  }
+  .material-group:last-child{ margin-bottom:0; }
+  .material-summary{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 14px;
+    cursor:pointer;
+    list-style:none;
+    user-select:none;
+  }
+  .material-summary::-webkit-details-marker{ display:none; }
+  .material-icon{
+    width:18px;height:18px;
+    border-radius:50%;
+    background:var(--danger-soft);
+    color:var(--danger);
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;
+    flex-shrink:0;
+  }
+  .material-text{ flex:1; min-width:0; }
+  .material-title{ font-size:12.5px; font-weight:600; color:var(--text); }
+  .material-sub{ font-size:11.5px; color:var(--text-muted); margin-top:1px; }
+  .material-count{
+    font-family:var(--font-mono);
+    font-size:11.5px;
+    font-weight:600;
+    color:var(--danger);
+    flex-shrink:0;
+  }
+  .material-chev{ color:var(--text-faint); flex-shrink:0; transition:transform .15s ease; display:flex; }
+  .material-group[open] .material-chev{ transform:rotate(90deg); }
+  .material-obs{
+    border-top:1px solid var(--border);
+    padding:8px 14px 10px 42px;
+    background:var(--surface-2);
+  }
+  .material-obs-item{
+    font-size:11.5px;
+    padding:5px 0;
+    border-bottom:1px dashed var(--border);
+    color:var(--text);
+  }
+  .material-obs-item:last-child{ border-bottom:none; }
+  .material-obs-item .mo-rule{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--warn);
+    display:block;
+    margin-bottom:1px;
+  }
+  .review-more-hint{
+    font-size:11.5px;
+    color:var(--text-faint);
+    padding:8px 2px 0;
+    font-style:italic;
+  }
   .review-block-title{
     font-family:var(--font-mono);
     font-size:11px;
@@ -1076,8 +1150,18 @@
     <div class="review-body">
       <div class="review-block" id="reviewHeaderBlock"></div>
       <div class="review-block">
-        <div class="review-block-title">Reglas de negocio</div>
+        <div class="review-block-title">Reglas de negocio — resumen</div>
         <div id="reviewRules"></div>
+      </div>
+      <div class="review-block">
+        <div class="review-block-title-row">
+          <div class="review-block-title" id="reviewByMaterialTitle">Observaciones por hoja de ruta</div>
+          <div class="search review-material-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="reviewMaterialSearch" placeholder="Buscar por grupo, contador o descripción…" />
+          </div>
+        </div>
+        <div id="reviewByMaterial"></div>
       </div>
     </div>
   </section>
@@ -1398,6 +1482,7 @@ const state = {
   highlightIndices: [],
   compare: null, // computed diff result
   templateReview: null, // { headerReview, ruleResults, fileName }
+  materialGroups: null, // observaciones agrupadas por hoja de ruta
   activeTab: 'ok',
   search: ''
 };
@@ -1939,26 +2024,106 @@ function renderTemplateReview(){
     '</div>' +
     (issuesHtml ? '<ul class="header-issue-list">' + issuesHtml + (moreCount > 0 ? '<li>+' + moreCount + ' más</li>' : '') + '</ul>' : '');
 
+  // Resumen de reglas: solo estado y conteos — el detalle de cada observación
+  // vive agrupado por hoja de ruta más abajo, para verlas todas juntas por material.
   const rulesWrap = document.getElementById('reviewRules');
-  rulesWrap.innerHTML = ruleResults.map((r, idx) => {
+  rulesWrap.innerHTML = ruleResults.map(r => {
     const status = !r.applicable ? 'na' : (r.violations.length ? 'bad' : 'ok');
     const icon = status === 'na' ? '–' : (status === 'bad' ? '⚠' : '✓');
     const countText = status === 'na' ? 'No aplica' : (status === 'bad' ? r.violations.length + ' de ' + r.total : 'Cumple (' + r.total + ')');
-    const hasViol = status === 'bad' ? '1' : '0';
-    const violHtml = r.violations && r.violations.length ? r.violations.slice(0, 15).map(v =>
-      '<div class="rule-viol-item"><span class="rk">' + escapeHtml(v.key) + '</span> — ' + escapeHtml(v.detail) + '</div>'
-    ).join('') + (r.violations.length > 15 ? '<div class="rule-viol-more">+' + (r.violations.length - 15) + ' más</div>' : '') : '';
-    return '<details class="rule-row" data-status="' + status + '" data-hasviol="' + hasViol + '">' +
-      '<summary class="rule-summary">' +
+    return '<div class="rule-row" data-status="' + status + '">' +
+      '<div class="rule-summary" style="cursor:default;">' +
         '<span class="rule-icon ' + status + '">' + icon + '</span>' +
         '<span class="rule-text"><div class="rule-title">' + escapeHtml(r.title) + '</div><div class="rule-desc">' + escapeHtml(r.desc) + '</div></span>' +
         '<span class="rule-count">' + countText + '</span>' +
-        (hasViol === '1' ? '<span class="rule-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"/></svg></span>' : '') +
-      '</summary>' +
-      (violHtml ? '<div class="rule-violations">' + violHtml + '</div>' : '') +
-      '</details>';
+      '</div>' +
+    '</div>';
   }).join('');
+
+  state.materialGroups = groupViolationsByMaterial(state.antes, headerReview, ruleResults);
+  document.getElementById('reviewMaterialSearch').value = '';
+  renderMaterialGroups(state.materialGroups, '');
 }
+
+// Un mismo string de "key" ("Grupo 450-1 · Operación 0020" o "Grupo 450-1")
+// identifica siempre el material como "Grupo <grupo>-<cont>" al inicio —
+// se reutiliza para agrupar sin tener que tocar cada regla individualmente.
+function parseGroupFromViolationKey(key){
+  const m = /^Grupo\s+([^\s-]+)-([^\s·]+)/.exec(key || '');
+  return m ? { grupo: m[1], cont: m[2] } : null;
+}
+
+function groupViolationsByMaterial(parsed, headerReview, ruleResults){
+  const gi = parsed.labels.indexOf('Grupo hojas ruta');
+  const ci = parsed.labels.indexOf('Cont.grupo HRuta');
+  const di = parsed.labels.indexOf('Descripción');
+  const descByKey = new Map();
+  if (gi !== -1 && ci !== -1){
+    parsed.rows.forEach(row => {
+      const key = String(row[gi] ?? '').trim() + '␟' + String(row[ci] ?? '').trim();
+      if (!descByKey.has(key)) descByKey.set(key, di !== -1 ? row[di] : '');
+    });
+  }
+
+  const groups = new Map();
+  function addTo(grupo, cont, ruleTitle, detail){
+    const key = grupo + '␟' + cont;
+    if (!groups.has(key)){
+      groups.set(key, { grupo, cont, desc: descByKey.get(key) || '', items: [] });
+    }
+    groups.get(key).items.push({ rule: ruleTitle, detail });
+  }
+
+  ruleResults.forEach(r => {
+    if (!r.applicable) return;
+    r.violations.forEach(v => {
+      const gk = parseGroupFromViolationKey(v.key);
+      if (gk) addTo(gk.grupo, gk.cont, r.title, v.detail);
+    });
+  });
+
+  const list = [...groups.values()].sort((a, b) => b.items.length - a.items.length);
+  return list;
+}
+
+function renderMaterialGroups(groups, query){
+  const wrap = document.getElementById('reviewByMaterial');
+  const title = document.getElementById('reviewByMaterialTitle');
+  const q = (query || '').trim().toLowerCase();
+  const filtered = q ? groups.filter(g =>
+    g.grupo.toLowerCase().includes(q) || g.cont.toLowerCase().includes(q) ||
+    (g.grupo + '-' + g.cont).toLowerCase().includes(q) || String(g.desc || '').toLowerCase().includes(q)
+  ) : groups;
+
+  title.textContent = 'Observaciones por hoja de ruta (' + groups.length.toLocaleString('es') + ' con observaciones)';
+
+  if (!filtered.length){
+    wrap.innerHTML = '<div class="modal-empty">' + (groups.length ? 'Sin resultados para tu búsqueda.' : '✓ Ningún material tiene observaciones.') + '</div>';
+    return;
+  }
+
+  const maxShown = 300;
+  const shown = filtered.slice(0, maxShown);
+  wrap.innerHTML = shown.map(g => {
+    const label = 'Grupo ' + g.grupo + '-' + g.cont + (g.desc ? ' · ' + g.desc : '');
+    const items = g.items.map(it =>
+      '<div class="material-obs-item"><span class="mo-rule">' + escapeHtml(it.rule) + '</span>' + escapeHtml(it.detail) + '</div>'
+    ).join('');
+    return '<details class="material-group">' +
+      '<summary class="material-summary">' +
+        '<span class="material-icon">⚠</span>' +
+        '<span class="material-text"><div class="material-title">' + escapeHtml(label) + '</div><div class="material-sub">' + g.items.length + ' observación' + (g.items.length === 1 ? '' : 'es') + '</div></span>' +
+        '<span class="material-count">' + g.items.length + '</span>' +
+        '<span class="material-chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"/></svg></span>' +
+      '</summary>' +
+      '<div class="material-obs">' + items + '</div>' +
+      '</details>';
+  }).join('') + (filtered.length > maxShown ? '<div class="review-more-hint">Mostrando ' + maxShown + ' de ' + filtered.length.toLocaleString('es') + ' materiales. Usa la búsqueda para acotar.</div>' : '');
+}
+
+document.getElementById('reviewMaterialSearch').addEventListener('input', e => {
+  if (state.materialGroups) renderMaterialGroups(state.materialGroups, e.target.value);
+});
 
 function refreshRunState(){
   const btn = document.getElementById('btnRun');
@@ -2777,18 +2942,17 @@ function buildTemplateReviewSheetXml(){
   });
   L.push({ t: 'blank' });
 
-  L.push({ t: 'title', c: ['Todas las observaciones consolidadas'] });
-  L.push({ t: 'header', c: ['Regla', 'Fila afectada', 'Detalle'] });
-  let anyObservation = false;
-  ruleResults.forEach(r => {
-    if (!r.applicable) return;
-    r.violations.forEach(v => {
-      anyObservation = true;
-      L.push({ t: 'bad', c: [r.title, v.key, v.detail] });
-    });
-  });
-  if (!anyObservation){
+  const materialGroups = state.materialGroups || groupViolationsByMaterial(state.antes, headerReview, ruleResults);
+  L.push({ t: 'title', c: ['Observaciones agrupadas por hoja de ruta (' + materialGroups.length.toLocaleString('es') + ' materiales)'] });
+  if (!materialGroups.length){
     L.push({ t: 'data', c: ['(sin observaciones — la plantilla cumple todas las reglas evaluadas)', '', ''] });
+  } else {
+    L.push({ t: 'header', c: ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Regla', 'Detalle'] });
+    materialGroups.forEach(g => {
+      g.items.forEach(it => {
+        L.push({ t: 'bad', c: [g.grupo, g.cont, g.desc, it.rule, it.detail] });
+      });
+    });
   }
 
   return buildLogicalRowsSheetXml(L);
