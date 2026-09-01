@@ -1599,6 +1599,17 @@ function groupRowsByKey(parsed){
   return { groups, gi, ci };
 }
 
+// Operación codes ("0010", "10", " 0010 "…) are compared by their numeric
+// value, never by exact text — the plantilla and the SAP export don't
+// always agree on leading zeros or padding, and that's not a real
+// difference. Returns null when the cell isn't a plain number at all.
+function opCodeNum(v){
+  const s = String(v === null || v === undefined ? '' : v).trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = parseInt(s, 10);
+  return isFinite(n) ? n : null;
+}
+
 function rowLabel(parsed, row){
   const gi = parsed.labels.indexOf('Grupo hojas ruta');
   const ci = parsed.labels.indexOf('Cont.grupo HRuta');
@@ -1610,6 +1621,30 @@ function rowLabel(parsed, row){
 }
 
 const BUSINESS_RULES = [
+  {
+    id: 'datpref-2-a-5-iguales',
+    title: 'DatPref #2 a #5 iguales en la operación intermedia',
+    desc: 'En las operaciones que no son "SET UP PRE/POST PROCESO" (la fila intermedia del proceso), los DatPref #2, #3, #4 y #5 deben tener el mismo valor',
+    run(parsed){
+      const tIdx = parsed.labels.indexOf('Texto breve operación');
+      const dIdx = colIndicesByBase(parsed.labels, 'DatPref');
+      if (tIdx === -1 || dIdx.length < 5) return { applicable: false };
+      const d2 = dIdx[1], d3 = dIdx[2], d4 = dIdx[3], d5 = dIdx[4];
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        const texto = String(row[tIdx] || '').trim().toUpperCase();
+        if (texto.startsWith('SET UP')) return; // filas de arranque/cierre, no son la intermedia
+        total++;
+        const norm = v => (v === '' || v === null || v === undefined) ? 0 : v;
+        const vals = [norm(row[d2]), norm(row[d3]), norm(row[d4]), norm(row[d5])];
+        const allEqual = vals.every(v => v === vals[0]);
+        if (!allEqual){
+          violations.push({ key: rowLabel(parsed, row), detail: 'DatPref #2=' + vals[0] + ', #3=' + vals[1] + ', #4=' + vals[2] + ', #5=' + vals[3] });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
   {
     id: 'datpref-decimales-multiplo-5',
     title: 'DatPref con decimales múltiplos de 5 (máx. 3 decimales)',
@@ -1648,7 +1683,7 @@ const BUSINESS_RULES = [
       if (oi === -1 || !dIdx.length) return { applicable: false };
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
-        if (String(row[oi]).trim() !== '0010') return;
+        if (opCodeNum(row[oi]) !== 10) return;
         total++;
         const bad = dIdx.filter(i => { const v = row[i]; return !(v === 0 || v === '' || v === null || v === undefined); });
         if (bad.length){
@@ -1670,7 +1705,7 @@ const BUSINESS_RULES = [
       if (oi === -1 || (fi === -1 && si === -1)) return { applicable: false };
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
-        if (String(row[oi]).trim() !== '0010') return;
+        if (opCodeNum(row[oi]) !== 10) return;
         total++;
         const badF = fi !== -1 && row[fi] !== '' && row[fi] !== null && row[fi] !== undefined;
         const badS = si !== -1 && row[si] !== '' && row[si] !== null && row[si] !== undefined;
@@ -1695,9 +1730,9 @@ const BUSINESS_RULES = [
       let total = 0; const violations = [];
       g.groups.forEach((entries, key) => {
         total++;
-        const sorted = entries.slice().sort((a, b) => parseInt(a.row[oi], 10) - parseInt(b.row[oi], 10));
+        const sorted = entries.slice().sort((a, b) => (opCodeNum(a.row[oi]) ?? Infinity) - (opCodeNum(b.row[oi]) ?? Infinity));
         const first = sorted[0].row[oi];
-        if (String(first).trim() !== '0010'){
+        if (opCodeNum(first) !== 10){
           violations.push({ key: 'Grupo ' + key, detail: 'primera operación es "' + first + '", se esperaba "0010"' });
         }
       });
@@ -1714,8 +1749,8 @@ const BUSINESS_RULES = [
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
         total++;
-        const n = parseInt(row[oi], 10);
-        if (!isFinite(n) || n % 10 !== 0){
+        const n = opCodeNum(row[oi]);
+        if (n === null || n % 10 !== 0){
           violations.push({ key: rowLabel(parsed, row), detail: 'Operación="' + row[oi] + '" no es múltiplo de 10' });
         }
       });
@@ -1735,7 +1770,8 @@ const BUSINESS_RULES = [
         total++;
         const seen = new Map();
         entries.forEach(e => {
-          const op = String(e.row[oi]).trim();
+          const n = opCodeNum(e.row[oi]);
+          const op = n !== null ? n : String(e.row[oi]).trim();
           seen.set(op, (seen.get(op) || 0) + 1);
         });
         seen.forEach((count, op) => {
