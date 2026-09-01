@@ -649,6 +649,10 @@
     padding:18px 20px 14px;
     flex-wrap:wrap;
   }
+  @media (max-width:480px){
+    .review-head{ flex-direction:column; align-items:stretch; }
+    .review-head-right{ width:100%; justify-content:space-between; }
+  }
   .review-title{
     font-family:var(--font-display);
     font-size:15.5px;
@@ -661,6 +665,13 @@
     color:var(--text-muted);
   }
   .review-sub b{ color:var(--text); font-weight:600; }
+  .review-head-right{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-shrink:0;
+    flex-wrap:wrap;
+  }
   .review-badge{
     display:inline-flex;
     align-items:center;
@@ -1054,7 +1065,13 @@
         <h2 class="review-title">Revisión de plantilla</h2>
         <p class="review-sub">Formato de encabezados y reglas de negocio de la hoja de ruta, evaluados sobre <b id="reviewFileName"></b></p>
       </div>
-      <span class="review-badge" id="reviewBadge"></span>
+      <div class="review-head-right">
+        <span class="review-badge" id="reviewBadge"></span>
+        <button class="btn-export" id="btnExportReview">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Exportar revisión
+        </button>
+      </div>
     </div>
     <div class="review-body">
       <div class="review-block" id="reviewHeaderBlock"></div>
@@ -1380,6 +1397,7 @@ const state = {
   keyIndices: [],
   highlightIndices: [],
   compare: null, // computed diff result
+  templateReview: null, // { headerReview, ruleResults, fileName }
   activeTab: 'ok',
   search: ''
 };
@@ -1864,6 +1882,7 @@ function renderTemplateReview(){
 
   const headerReview = reviewHeaders(state.antes.headers);
   const ruleResults = BUSINESS_RULES.map(rule => Object.assign({ id: rule.id, title: rule.title, desc: rule.desc }, rule.run(state.antes)));
+  state.templateReview = { headerReview, ruleResults, fileName: state.antes.fileName };
 
   const headerOk = headerReview.issues.length === 0;
   const ruleProblems = ruleResults.filter(r => r.applicable && r.violations.length > 0).length;
@@ -2610,32 +2629,7 @@ function buildSummarySheetXml(){
     L.push({ t: 'data', c: ['(sin diferencias de campo)', 0] });
   }
 
-  let rowsXml = '';
-  let rNum = 1;
-  let maxCols = 3;
-  L.forEach(item => { if (item.c) maxCols = Math.max(maxCols, item.c.length); });
-
-  L.forEach(item => {
-    if (item.t === 'blank'){ rNum++; return; }
-    const style = (item.t === 'title' || item.t === 'header') ? XLSX_STYLE.HEADER : XLSX_STYLE.DEFAULT;
-    let cells = '';
-    (item.c || []).forEach((v, ci) => {
-      const ref = colIndexToLetter(ci) + rNum;
-      if (typeof v === 'number' && isFinite(v)){
-        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
-      } else {
-        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
-      }
-    });
-    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
-    rNum++;
-  });
-
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<cols><col min="1" max="' + maxCols + '" width="22" customWidth="1"/></cols>' +
-    '<sheetData>' + rowsXml + '</sheetData>' +
-    '</worksheet>';
+  return buildLogicalRowsSheetXml(L);
 }
 
 function exportComparisonToExcel(){
@@ -2667,19 +2661,122 @@ function exportComparisonToExcel(){
   const summarySheetXml = buildSummarySheetXml();
 
   const bytes = buildExportWorkbook(['Plantilla', 'Reporte SAP', 'Resumen'], [antesSheetXml, despuesSheetXml, summarySheetXml]);
+  downloadWorkbook(bytes, 'comparacion-hoja-de-ruta-' + todayStamp() + '.xlsx');
+}
+
+document.getElementById('btnExport').addEventListener('click', exportComparisonToExcel);
+
+/* ---------------------------------------------------------------------
+   8) EXPORT TEMPLATE REVIEW TO XLSX — todas las observaciones consolidadas
+--------------------------------------------------------------------- */
+
+function todayStamp(){
+  return new Date().toISOString().slice(0, 10);
+}
+
+function downloadWorkbook(bytes, filename){
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0, 10);
   a.href = url;
-  a.download = 'comparacion-hoja-de-ruta-' + stamp + '.xlsx';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-document.getElementById('btnExport').addEventListener('click', exportComparisonToExcel);
+function buildLogicalRowsSheetXml(L){
+  let rowsXml = '';
+  let rNum = 1;
+  let maxCols = 3;
+  L.forEach(item => { if (item.c) maxCols = Math.max(maxCols, item.c.length); });
+
+  L.forEach(item => {
+    if (item.t === 'blank'){ rNum++; return; }
+    const style = (item.t === 'title' || item.t === 'header') ? XLSX_STYLE.HEADER : (item.t === 'bad' ? XLSX_STYLE.RED : XLSX_STYLE.DEFAULT);
+    let cells = '';
+    (item.c || []).forEach((v, ci) => {
+      const ref = colIndexToLetter(ci) + rNum;
+      if (typeof v === 'number' && isFinite(v)){
+        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
+      } else {
+        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
+      }
+    });
+    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
+    rNum++;
+  });
+
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<cols><col min="1" max="' + maxCols + '" width="24" customWidth="1"/></cols>' +
+    '<sheetData>' + rowsXml + '</sheetData>' +
+    '</worksheet>';
+}
+
+function buildTemplateReviewSheetXml(){
+  const { headerReview, ruleResults, fileName } = state.templateReview;
+  const headerOk = headerReview.issues.length === 0;
+  const ruleProblems = ruleResults.filter(r => r.applicable && r.violations.length > 0).length;
+  const totalObservations = ruleResults.reduce((sum, r) => sum + (r.violations ? r.violations.length : 0), 0) + headerReview.issues.length;
+
+  const L = [];
+  L.push({ t: 'title', c: ['Revisión de plantilla'] });
+  L.push({ t: 'meta', c: ['Archivo', fileName] });
+  L.push({ t: 'meta', c: ['Generado', new Date().toLocaleString('es')] });
+  L.push({ t: 'meta', c: ['Total de observaciones', totalObservations] });
+  L.push({ t: 'blank' });
+
+  L.push({ t: 'title', c: ['Formato de encabezados'] });
+  L.push({ t: 'header', c: ['Estado', headerOk ? 'Correcto — ' + headerReview.formatName : 'Con diferencias — ' + headerReview.formatName] });
+  if (headerOk){
+    L.push({ t: 'data', c: ['Encabezados y orden de columnas correctos', ''] });
+  } else {
+    L.push({ t: 'header', c: ['Columna', 'Observación'] });
+    headerReview.issues.forEach(iss => {
+      let detail;
+      if (iss.type === 'mismatch') detail = 'se esperaba "' + iss.expected + '" y se encontró "' + iss.actual + '"';
+      else if (iss.type === 'missing') detail = 'falta la columna "' + iss.expected + '"';
+      else detail = 'columna no reconocida: "' + iss.actual + '"';
+      L.push({ t: 'bad', c: ['Col. ' + iss.pos, detail] });
+    });
+  }
+  L.push({ t: 'blank' });
+
+  L.push({ t: 'title', c: ['Resumen de reglas de negocio'] });
+  L.push({ t: 'header', c: ['Regla', 'Estado', 'Evaluadas', 'Con observaciones'] });
+  ruleResults.forEach(r => {
+    const estado = !r.applicable ? 'No aplica' : (r.violations.length ? 'Con observaciones' : 'Cumple');
+    L.push({ t: r.applicable && r.violations.length ? 'bad' : 'data', c: [r.title, estado, r.applicable ? r.total : '', r.applicable ? r.violations.length : ''] });
+  });
+  L.push({ t: 'blank' });
+
+  L.push({ t: 'title', c: ['Todas las observaciones consolidadas'] });
+  L.push({ t: 'header', c: ['Regla', 'Fila afectada', 'Detalle'] });
+  let anyObservation = false;
+  ruleResults.forEach(r => {
+    if (!r.applicable) return;
+    r.violations.forEach(v => {
+      anyObservation = true;
+      L.push({ t: 'bad', c: [r.title, v.key, v.detail] });
+    });
+  });
+  if (!anyObservation){
+    L.push({ t: 'data', c: ['(sin observaciones — la plantilla cumple todas las reglas evaluadas)', '', ''] });
+  }
+
+  return buildLogicalRowsSheetXml(L);
+}
+
+function exportTemplateReviewToExcel(){
+  if (!state.templateReview) return;
+  const xml = buildTemplateReviewSheetXml();
+  const bytes = buildExportWorkbook(['Revisión de plantilla'], [xml]);
+  downloadWorkbook(bytes, 'revision-plantilla-' + todayStamp() + '.xlsx');
+}
+
+document.getElementById('btnExportReview').addEventListener('click', exportTemplateReviewToExcel);
 
 })();
 </script>
