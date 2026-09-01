@@ -1664,6 +1664,31 @@ const BUSINESS_RULES = [
     }
   },
   {
+    id: 'datpref1-datpref5-personas',
+    title: 'DatPref ÷ DatPref #5 = número de personas (entero)',
+    desc: 'El cociente entre DatPref y DatPref #5 representa la cantidad de personas asignadas, así que debe dar un entero o un valor muy cercano (p. ej. 3.0001, 3.002) — las personas no son fraccionarias',
+    run(parsed){
+      const dIdx = colIndicesByBase(parsed.labels, 'DatPref');
+      if (dIdx.length < 5) return { applicable: false };
+      const d1 = dIdx[0], d5 = dIdx[4];
+      const TOL = 0.01;
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        const raw1 = row[d1], raw5 = row[d5];
+        const v1 = typeof raw1 === 'number' ? raw1 : parseFloat(String(raw1 ?? '').replace(',', '.'));
+        const v5 = typeof raw5 === 'number' ? raw5 : parseFloat(String(raw5 ?? '').replace(',', '.'));
+        if (!isFinite(v1) || !isFinite(v5) || v1 === 0 || v5 === 0) return; // no aplica: sin dato en alguno de los dos
+        total++;
+        const ratio = v1 / v5;
+        const nearest = Math.round(ratio);
+        if (nearest === 0 || Math.abs(ratio - nearest) > TOL){
+          violations.push({ key: rowLabel(parsed, row), detail: 'DatPref=' + v1 + ' ÷ DatPref #5=' + v5 + ' = ' + ratio.toFixed(4) + ' (no es un número de personas entero)' });
+        }
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
     id: 'datpref-decimales-multiplo-5',
     title: 'DatPref con decimales múltiplos de 5 (máx. 3 decimales)',
     desc: 'Ningún DatPref puede tener más de 3 decimales, y esos decimales deben ser múltiplos de 5 (p. ej. 0.005, 0.125, 2.250)',
