@@ -1086,7 +1086,7 @@
       <div class="table-wrap" id="tableWrap"></div>
     </section>
 
-    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida y no se usan para detectar cambios. Haz clic en cualquier fila para ver el detalle campo a campo.</p>
+    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Los números se comparan a precisión completa, sin redondear. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida, y la columna Z del export de SAP se excluye a propósito — ninguna de estas se usa para detectar cambios. Haz clic en cualquier fila para ver el detalle campo a campo.</p>
   </section>
 
 </div>
@@ -1611,6 +1611,34 @@ function rowLabel(parsed, row){
 
 const BUSINESS_RULES = [
   {
+    id: 'datpref-decimales-multiplo-5',
+    title: 'DatPref con decimales múltiplos de 5 (máx. 3 decimales)',
+    desc: 'Ningún DatPref puede tener más de 3 decimales, y esos decimales deben ser múltiplos de 5 (p. ej. 0.005, 0.125, 2.250)',
+    run(parsed){
+      const dIdx = colIndicesByBase(parsed.labels, 'DatPref');
+      if (!dIdx.length) return { applicable: false };
+      let total = 0; const violations = [];
+      parsed.rows.forEach(row => {
+        dIdx.forEach(i => {
+          const raw = row[i];
+          if (raw === '' || raw === null || raw === undefined) return;
+          const v = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(',', '.'));
+          if (!isFinite(v)) return;
+          total++;
+          const scaled = v * 1000;
+          const rounded = Math.round(scaled);
+          const hasExtraDecimals = Math.abs(scaled - rounded) > 1e-6;
+          const notMultipleOf5 = Math.abs(rounded % 5) > 1e-6;
+          if (hasExtraDecimals || notMultipleOf5){
+            const reason = hasExtraDecimals ? 'más de 3 decimales' : 'no es múltiplo de 0.005';
+            violations.push({ key: rowLabel(parsed, row), detail: parsed.labels[i] + '=' + v + ' (' + reason + ')' });
+          }
+        });
+      });
+      return { applicable: true, total, violations };
+    }
+  },
+  {
     id: 'op0010-datpref-cero',
     title: 'Operación 0010 sin tiempos de proceso',
     desc: 'En la operación 0010, todos los DatPref deben ser 0.000',
@@ -1876,6 +1904,10 @@ function refreshRunState(){
    4) COMPARISON ENGINE
 --------------------------------------------------------------------- */
 
+// No business rounding here on purpose — values are compared at full
+// precision. Only true IEEE-754 floating point noise (way past any decimal
+// a spreadsheet would show) gets cleaned up, so 6 and 6.000000001 still
+// compare equal, but 6.00 and 6.05 never do.
 function roundNum(n){
   return Math.round(n * 1e6) / 1e6;
 }
@@ -1923,6 +1955,13 @@ function runComparison(){
   const columns = a.labels.slice();
   d.labels.forEach(lbl => { if (!columns.includes(lbl)) columns.push(lbl); });
 
+  // Columna Z (26ª columna) del export de SAP: se excluye de la detección de
+  // cambios a pedido — se sigue mostrando en la tabla, pero nunca marca una
+  // fila como "con diferencias".
+  const excludedLabels = new Set();
+  const zIdx = colLetterToIndex('Z');
+  if (d.labels[zIdx] !== undefined) excludedLabels.add(d.labels[zIdx]);
+
   const dIndexByLabel = {};
   d.labels.forEach((lbl, i) => { if (!(lbl in dIndexByLabel)) dIndexByLabel[lbl] = i; });
   const aIndexByLabel = {};
@@ -1950,6 +1989,7 @@ function runComparison(){
         // Centro / Clave de control / Número modificación / Válido de / Fin de validez,
         // which SAP fills in on export) can't be compared — never flag it as a change.
         if (ai === undefined || di === undefined) return;
+        if (excludedLabels.has(col)) return;
         const va = rowA[ai];
         const vd = rowD[di];
         if (normVal(va) !== normVal(vd)){
@@ -1978,7 +2018,7 @@ function runComparison(){
   });
 
   const highlightLabels = new Set(state.highlightIndices.map(i => a.labels[i]));
-  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels, highlightLabels };
+  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels, highlightLabels, excludedLabels };
 }
 
 /* ---------------------------------------------------------------------
@@ -2070,7 +2110,8 @@ function renderTable(res){
       const soloSap = res.aIndexByLabel[c] === undefined;
       const soloPlantilla = res.dIndexByLabel[c] === undefined;
       const isHl = res.highlightLabels.has(c);
-      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : (isHl ? '<br><span class="col-highlight-tag">resaltada</span>' : ''));
+      const isExcluded = res.excludedLabels.has(c);
+      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : (isExcluded ? '<br><span class="col-note">excluida de la comparación</span>' : (isHl ? '<br><span class="col-highlight-tag">resaltada</span>' : '')));
       const cls = [keySet.has(c) ? 'key-col' : '', isHl ? 'col-highlight' : ''].filter(Boolean).join(' ');
       return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + escapeHtml(c) + note + '</th>';
     }).join('') +
