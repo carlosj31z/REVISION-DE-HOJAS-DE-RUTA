@@ -396,6 +396,15 @@
     letter-spacing:.06em;
     color:var(--text-faint);
   }
+  .scope-note{
+    margin:0 0 14px;
+    padding:9px 13px;
+    border-radius:8px;
+    background:var(--accent-soft);
+    border:1px solid var(--accent);
+    color:var(--accent-strong);
+    font-size:12px;
+  }
   .btn-export{
     appearance:none;
     border:1px solid var(--border-strong);
@@ -1174,6 +1183,7 @@
         Exportar a Excel
       </button>
     </div>
+    <p class="scope-note" id="scopeNote" style="display:none;"></p>
     <div class="stat-row" id="statRow"></div>
 
     <section class="panel">
@@ -1187,7 +1197,7 @@
       <div class="table-wrap" id="tableWrap"></div>
     </section>
 
-    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Los números se comparan a precisión completa, sin redondear. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida, y la columna Z del export de SAP se excluye a propósito — ninguna de estas se usa para detectar cambios. Haz clic en cualquier fila para ver el detalle campo a campo.</p>
+    <p class="footnote">Clave de emparejamiento y columnas se detectan automáticamente por encabezado. Las fechas se comparan por valor de calendario, no por formato de celda. Los números se comparan a precisión completa, sin redondear. Las columnas marcadas "solo en SAP" (p. ej. Centro, Clave de control, Número modificación, Válido de, Fin de validez) no existen en la plantilla reducida, y la columna Z del export de SAP se excluye a propósito — ninguna de estas se usa para detectar cambios. Las filas del export de SAP cuya hoja de ruta y contador no existen en la plantilla se descartan por completo (SAP exporta por rango y suele traer material de más que no se pidió modificar). Haz clic en cualquier fila para ver el detalle campo a campo.</p>
   </section>
 
 </div>
@@ -2212,8 +2222,25 @@ function runComparison(){
   const aIndexByLabel = {};
   a.labels.forEach((lbl, i) => { if (!(lbl in aIndexByLabel)) aIndexByLabel[lbl] = i; });
 
+  // SAP exporta por rango, así que el "después" suele traer hojas de ruta y
+  // contadores que nunca se pidió modificar. Solo se evalúan las combinaciones
+  // Grupo hojas ruta + Cont.grupo HRuta que sí aparecen en la plantilla — el
+  // resto se descarta de la comparación por completo (no cuenta como "nueva").
+  const aGi = a.labels.indexOf('Grupo hojas ruta');
+  const aCi = a.labels.indexOf('Cont.grupo HRuta');
+  const dGi = d.labels.indexOf('Grupo hojas ruta');
+  const dCi = d.labels.indexOf('Cont.grupo HRuta');
+  let relevantDespuesRows = d.rows;
+  let outOfScopeCount = 0;
+  if (aGi !== -1 && aCi !== -1 && dGi !== -1 && dCi !== -1){
+    const antesHrSet = new Set();
+    a.rows.forEach(row => antesHrSet.add(String(row[aGi] ?? '').trim() + '␟' + String(row[aCi] ?? '').trim()));
+    relevantDespuesRows = d.rows.filter(row => antesHrSet.has(String(row[dGi] ?? '').trim() + '␟' + String(row[dCi] ?? '').trim()));
+    outOfScopeCount = d.rows.length - relevantDespuesRows.length;
+  }
+
   const despuesMap = new Map();
-  d.rows.forEach(row => {
+  relevantDespuesRows.forEach(row => {
     const k = buildKey(row, d.labels, keyLabels);
     if (!despuesMap.has(k)) despuesMap.set(k, row);
   });
@@ -2251,7 +2278,7 @@ function runComparison(){
     }
   });
 
-  d.rows.forEach(rowD => {
+  relevantDespuesRows.forEach(rowD => {
     const k = buildKey(rowD, d.labels, keyLabels);
     if (!matchedKeys.has(k)){
       // avoid double-adding duplicate keys within despues itself
@@ -2263,7 +2290,7 @@ function runComparison(){
   });
 
   const highlightLabels = new Set(state.highlightIndices.map(i => a.labels[i]));
-  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels, highlightLabels, excludedLabels };
+  return { columns, aIndexByLabel, dIndexByLabel, results, keyLabels, highlightLabels, excludedLabels, outOfScopeCount };
 }
 
 /* ---------------------------------------------------------------------
@@ -2303,6 +2330,15 @@ function renderStats(res){
   document.getElementById('statRow').innerHTML = stats.map(s =>
     '<div class="stat ' + s.cls + '"><div class="num">' + s.num.toLocaleString('es') + '</div><div class="lbl">' + s.lbl + '</div></div>'
   ).join('');
+
+  const note = document.getElementById('scopeNote');
+  if (res.outOfScopeCount > 0){
+    note.style.display = 'block';
+    note.textContent = 'ℹ ' + res.outOfScopeCount.toLocaleString('es') + ' fila' + (res.outOfScopeCount === 1 ? '' : 's') + ' del export de SAP se excluyeron de la comparación por pertenecer a hojas de ruta / contadores que no estaban en la plantilla (SAP exporta por rango y suele traer de más).';
+  } else {
+    note.style.display = 'none';
+  }
+
   return counts;
 }
 
@@ -2804,6 +2840,9 @@ function buildSummarySheetXml(){
   L.push({ t: 'data', c: ['Con diferencias', counts.changed, pct(counts.changed) + '%'] });
   L.push({ t: 'data', c: ['Nuevas / inesperadas', counts.new, pct(counts.new) + '%'] });
   L.push({ t: 'data', c: ['Total', total, '100%'] });
+  if (res.outOfScopeCount > 0){
+    L.push({ t: 'data', c: ['Filas del export SAP excluidas (fuera de la plantilla)', res.outOfScopeCount, ''] });
+  }
   L.push({ t: 'blank' });
   L.push({ t: 'title', c: ['Desglose por hoja de ruta (peores primero)'] });
   L.push({ t: 'header', c: ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Operaciones', 'Efectuadas', 'Con diferencias', 'No efectuadas', 'Nuevas', '% efectuado'] });
