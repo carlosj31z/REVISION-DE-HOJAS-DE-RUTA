@@ -2087,6 +2087,17 @@ function renderTemplateReview(){
   renderMaterialGroups(state.materialGroups, '');
 }
 
+// Compara códigos como "450" vs "1450" por su valor numérico cuando ambos
+// lo son (para que el orden salga 1, 2, ..., 10, 11 y no 1, 10, 11, 2);
+// si alguno no es puramente numérico, cae a comparación alfabética normal.
+function naturalCompare(a, b){
+  const na = Number(a), nb = Number(b);
+  const aIsNum = a !== '' && isFinite(na);
+  const bIsNum = b !== '' && isFinite(nb);
+  if (aIsNum && bIsNum) return na - nb;
+  return String(a).localeCompare(String(b), 'es', { numeric: true });
+}
+
 // Un mismo string de "key" ("Grupo 450-1 · Operación 0020" o "Grupo 450-1")
 // identifica siempre el material como "Grupo <grupo>-<cont>" al inicio —
 // se reutiliza para agrupar sin tener que tocar cada regla individualmente.
@@ -2709,7 +2720,7 @@ function colIndexToLetter(n){
 }
 
 // cellXfs style indices used across the exported workbook
-const XLSX_STYLE = { DEFAULT: 0, HEADER: 1, YELLOW: 2, GREEN: 3, RED: 4, LAVENDER: 5, GRAY: 6 };
+const XLSX_STYLE = { DEFAULT: 0, HEADER: 1, YELLOW: 2, GREEN: 3, RED: 4, LAVENDER: 5, GRAY: 6, ATTENTION: 7 };
 
 function buildSheetXml(headers, rows, rowStyleFn){
   let rowsXml = '';
@@ -2751,7 +2762,7 @@ function buildStylesXml(){
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
     '<fonts count="2"><font><sz val="10.5"/><name val="Calibri"/></font><font><b/><sz val="10.5"/><name val="Calibri"/><color rgb="FF182129"/></font></fonts>' +
-    '<fills count="8">' +
+    '<fills count="9">' +
     '<fill><patternFill patternType="none"/></fill>' +
     '<fill><patternFill patternType="gray125"/></fill>' +
     '<fill><patternFill patternType="solid"><fgColor rgb="FFE3E9EF"/><bgColor indexed="64"/></patternFill></fill>' +
@@ -2760,10 +2771,11 @@ function buildStylesXml(){
     '<fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor indexed="64"/></patternFill></fill>' +
     '<fill><patternFill patternType="solid"><fgColor rgb="FFE0D6F5"/><bgColor indexed="64"/></patternFill></fill>' +
     '<fill><patternFill patternType="solid"><fgColor rgb="FFE7EBEF"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFFBEDD6"/><bgColor indexed="64"/></patternFill></fill>' +
     '</fills>' +
     '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="7">' +
+    '<cellXfs count="8">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
@@ -2771,6 +2783,7 @@ function buildStylesXml(){
     '<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="7" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="0" fillId="8" borderId="0" xfId="0" applyFill="1"/>' +
     '</cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '</styleSheet>';
@@ -2946,7 +2959,7 @@ function downloadWorkbook(bytes, filename){
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-function buildLogicalRowsSheetXml(L){
+function buildLogicalRowsSheetXml(L, colWidths){
   let rowsXml = '';
   let rNum = 1;
   let maxCols = 3;
@@ -2954,7 +2967,7 @@ function buildLogicalRowsSheetXml(L){
 
   L.forEach(item => {
     if (item.t === 'blank'){ rNum++; return; }
-    const style = (item.t === 'title' || item.t === 'header') ? XLSX_STYLE.HEADER : (item.t === 'bad' ? XLSX_STYLE.RED : XLSX_STYLE.DEFAULT);
+    const style = (item.t === 'title' || item.t === 'header') ? XLSX_STYLE.HEADER : (item.t === 'bad' ? XLSX_STYLE.ATTENTION : XLSX_STYLE.DEFAULT);
     let cells = '';
     (item.c || []).forEach((v, ci) => {
       const ref = colIndexToLetter(ci) + rNum;
@@ -2968,9 +2981,14 @@ function buildLogicalRowsSheetXml(L){
     rNum++;
   });
 
+  const colsXml = colWidths
+    ? colWidths.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join('') +
+      '<col min="' + (colWidths.length + 1) + '" max="' + maxCols + '" width="22" customWidth="1"/>'
+    : '<col min="1" max="' + maxCols + '" width="24" customWidth="1"/>';
+
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<cols><col min="1" max="' + maxCols + '" width="24" customWidth="1"/></cols>' +
+    '<cols>' + colsXml + '</cols>' +
     '<sheetData>' + rowsXml + '</sheetData>' +
     '</worksheet>';
 }
@@ -3013,19 +3031,25 @@ function buildTemplateReviewSheetXml(){
   L.push({ t: 'blank' });
 
   const materialGroups = state.materialGroups || groupViolationsByMaterial(state.antes, headerReview, ruleResults);
-  L.push({ t: 'title', c: ['Observaciones agrupadas por hoja de ruta (' + materialGroups.length.toLocaleString('es') + ' materiales)'] });
-  if (!materialGroups.length){
+  // En pantalla se ordena por severidad (peor primero); en el Excel se
+  // ordena por Grupo hojas ruta + Cont.grupo HRuta para que quede en el
+  // mismo orden natural en que aparecen en la plantilla.
+  const orderedGroups = materialGroups.slice().sort((a, b) =>
+    naturalCompare(a.grupo, b.grupo) || naturalCompare(a.cont, b.cont)
+  );
+  L.push({ t: 'title', c: ['Observaciones agrupadas por hoja de ruta (' + orderedGroups.length.toLocaleString('es') + ' materiales)'] });
+  if (!orderedGroups.length){
     L.push({ t: 'data', c: ['(sin observaciones — la plantilla cumple todas las reglas evaluadas)', '', ''] });
   } else {
     L.push({ t: 'header', c: ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Descripción', 'Regla', 'Detalle'] });
-    materialGroups.forEach(g => {
+    orderedGroups.forEach(g => {
       g.items.forEach(it => {
         L.push({ t: 'bad', c: [g.grupo, g.cont, g.desc, it.rule, it.detail] });
       });
     });
   }
 
-  return buildLogicalRowsSheetXml(L);
+  return buildLogicalRowsSheetXml(L, [14, 16, 30, 38, 60]);
 }
 
 function exportTemplateReviewToExcel(){
