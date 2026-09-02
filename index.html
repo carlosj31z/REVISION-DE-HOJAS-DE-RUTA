@@ -1760,8 +1760,8 @@ const BUSINESS_RULES = [
   },
   {
     id: 'datpref1-mayor-2345',
-    title: 'DatPref mayor que #2, #3, #4 y #5',
-    desc: 'En cada operación, el valor de DatPref (bloque 1) debe ser mayor que el de DatPref #2, #3, #4 y #5',
+    title: 'DatPref mayor o igual que #2, #3, #4 y #5',
+    desc: 'En cada operación, el valor de DatPref (bloque 1) debe ser mayor o igual que el de DatPref #2, #3, #4 y #5',
     run(parsed){
       const dIdx = colIndicesByBase(parsed.labels, 'DatPref');
       if (dIdx.length < 5) return { applicable: false };
@@ -1782,9 +1782,9 @@ const BUSINESS_RULES = [
         });
         if (!comparisons.length) return; // no aplica: sin dato para comparar
         total++;
-        const failing = comparisons.filter(c => !(v1 > c.v));
+        const failing = comparisons.filter(c => !(v1 >= c.v));
         if (failing.length){
-          violations.push({ key: rowLabel(parsed, row), detail: 'DatPref=' + v1 + ' no es mayor que ' + failing.map(f => f.label + '=' + f.v).join(', ') });
+          violations.push({ key: rowLabel(parsed, row), detail: 'DatPref=' + v1 + ' no es mayor o igual que ' + failing.map(f => f.label + '=' + f.v).join(', ') });
         }
       });
       return { applicable: true, total, violations };
