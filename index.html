@@ -527,6 +527,54 @@
   .tab.active.t-missing .count{ background:var(--danger-soft); color:var(--danger); }
   .tab.active.t-new .count{ background:var(--new-soft); color:var(--new); }
   .tab.active.t-ok .count{ background:var(--ok-soft); color:var(--ok); }
+  .tab.active.t-stacked .count{ background:var(--accent-soft, var(--border)); color:var(--accent-strong); }
+
+  .stack-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    padding:10px 18px;
+    border-bottom:1px solid var(--border);
+    background:var(--surface-2);
+  }
+  .stack-toggle{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    font-size:12.5px;
+    color:var(--text);
+    cursor:pointer;
+    user-select:none;
+  }
+  .stack-toggle input{ cursor:pointer; }
+  .stack-toolbar-hint{
+    font-size:11.5px;
+    color:var(--text-faint);
+  }
+  .stack-panel{
+    border-bottom:2px solid var(--border-strong);
+  }
+  .stack-panel:last-child{ border-bottom:none; }
+  .stack-panel-label{
+    padding:7px 18px;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.03em;
+    text-transform:uppercase;
+    color:var(--accent-strong);
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+  }
+  .stack-panel-label-sap{ color:var(--warn); }
+  .stack-scroll{
+    overflow:auto;
+    max-height:34vh;
+  }
+  table.stack-table{ width:max-content; min-width:100%; table-layout:fixed; }
+  table.stack-table th, table.stack-table td{ overflow:hidden; text-overflow:ellipsis; }
+  .field-val.na{ color:var(--text-faint); font-style:italic; }
 
   .search{
     display:flex;
@@ -1494,7 +1542,8 @@ const state = {
   templateReview: null, // { headerReview, ruleResults, fileName }
   materialGroups: null, // observaciones agrupadas por hoja de ruta
   activeTab: 'ok',
-  search: ''
+  search: '',
+  stackedOnlyDiff: true
 };
 
 const DEFAULT_KEY_NAMES = ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Centro', 'Operación'];
@@ -2353,6 +2402,7 @@ const TAB_DEFS = [
   { id: 'changed', label: 'Con diferencias', cls: 't-changed' },
   { id: 'new', label: 'Nuevas / inesperadas', cls: 't-new' },
   { id: 'all', label: 'Todas', cls: 't-all' },
+  { id: 'stacked', label: 'Plantilla vs SAP (vista apilada)', cls: 't-stacked' },
 ];
 
 function statusPillHtml(status){
@@ -2395,7 +2445,7 @@ function renderStats(res){
 function renderTabs(counts, total){
   const wrap = document.getElementById('tabs');
   wrap.innerHTML = TAB_DEFS.map(t => {
-    const count = t.id === 'all' ? total : counts[t.id];
+    const count = (t.id === 'all' || t.id === 'stacked') ? total : counts[t.id];
     const active = state.activeTab === t.id;
     return '<button class="tab ' + t.cls + (active ? ' active' : '') + '" data-tab="' + t.id + '">' +
       t.label + ' <span class="count">' + count.toLocaleString('es') + '</span></button>';
@@ -2414,6 +2464,7 @@ function cellDisplay(v){
 }
 
 function renderTable(res){
+  if (state.activeTab === 'stacked'){ renderStackedTable(res); return; }
   const wrap = document.getElementById('tableWrap');
   let rows = res.results.filter(r => state.activeTab === 'all' ? true : r.status === state.activeTab);
 
@@ -2485,6 +2536,135 @@ function renderTable(res){
       if (r) openDetailModal(r, res);
     });
   });
+}
+
+function stackColWidth(label){
+  return Math.max(90, Math.min(220, label.length * 7 + 34));
+}
+
+function renderStackedTable(res){
+  const wrap = document.getElementById('tableWrap');
+  let rows = res.results;
+  if (state.stackedOnlyDiff) rows = rows.filter(r => r.status !== 'ok');
+
+  const q = state.search.trim().toLowerCase();
+  if (q){
+    rows = rows.filter(r => {
+      const src = r.rowA || r.rowD;
+      const labels = r.rowA ? state.antes.labels : state.despues.labels;
+      return labels.some((lbl, i) => String(src[i] ?? '').toLowerCase().includes(q));
+    });
+  }
+
+  const toolbarHtml = '<div class="stack-toolbar">' +
+    '<label class="stack-toggle"><input type="checkbox" id="stackOnlyDiffToggle"' + (state.stackedOnlyDiff ? ' checked' : '') + '> Solo hojas de ruta / operaciones con diferencias</label>' +
+    '<span class="stack-toolbar-hint">El scroll de ambos paneles está sincronizado, fila por fila.</span>' +
+    '</div>';
+
+  if (!rows.length){
+    wrap.innerHTML = toolbarHtml + '<div class="empty-state"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div>No hay filas en esta categoría' + (q ? ' para tu búsqueda.' : '.') + '</div></div>';
+    wireStackToolbar(res);
+    return;
+  }
+
+  const keySet = new Set(res.keyLabels);
+  const cols = res.columns;
+  const maxRows = 600;
+  const shown = rows.slice(0, maxRows);
+  const widths = cols.map(stackColWidth);
+
+  const colgroupHtml = '<colgroup><col style="width:64px;">' +
+    cols.map((c, i) => '<col style="width:' + widths[i] + 'px;">').join('') + '</colgroup>';
+
+  const headHtml = '<tr><th>Estado</th>' +
+    cols.map((c, i) => {
+      const soloSap = res.aIndexByLabel[c] === undefined;
+      const soloPlantilla = res.dIndexByLabel[c] === undefined;
+      const isHl = res.highlightLabels.has(c);
+      const isExcluded = res.excludedLabels.has(c);
+      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : (isExcluded ? '<br><span class="col-note">excluida</span>' : (isHl ? '<br><span class="col-highlight-tag">resaltada</span>' : '')));
+      const cls = [keySet.has(c) ? 'key-col' : '', isHl ? 'col-highlight' : ''].filter(Boolean).join(' ');
+      return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + escapeHtml(c) + note + '</th>';
+    }).join('') + '</tr>';
+
+  function buildBody(side){
+    return shown.map((r, idx) => {
+      const diffByCol = {};
+      r.diffs.forEach(d => diffByCol[d.col] = d);
+      let html = '<tr class="row-' + r.status + '" data-idx="' + idx + '">';
+      html += '<td class="status-cell">' + statusPillHtml(r.status) + '</td>';
+      cols.forEach(col => {
+        const tdCls = res.highlightLabels.has(col) ? ' class="col-highlight"' : '';
+        const idxCol = side === 'antes' ? res.aIndexByLabel[col] : res.dIndexByLabel[col];
+        let content;
+        if (side === 'antes' && r.status === 'new'){
+          content = '<span class="field-val na">no existe en plantilla</span>';
+        } else if (side === 'despues' && r.status === 'missing'){
+          content = '<span class="field-val na">no existe en SAP</span>';
+        } else if (idxCol === undefined){
+          content = cellDisplay('');
+        } else {
+          const v = side === 'antes' ? r.rowA[idxCol] : r.rowD[idxCol];
+          content = diffByCol[col] ? '<span class="' + (side === 'antes' ? 'cell-old' : 'cell-new') + '">' + cellDisplay(v) + '</span>' : cellDisplay(v);
+        }
+        html += '<td' + tdCls + '>' + content + '</td>';
+      });
+      html += '</tr>';
+      return html;
+    }).join('');
+  }
+
+  const html = toolbarHtml +
+    '<div class="stack-panel">' +
+      '<div class="stack-panel-label">Plantilla · ' + escapeHtml(state.antes ? state.antes.fileName : '') + '</div>' +
+      '<div class="stack-scroll" id="stackTop"><table class="diff stack-table">' + colgroupHtml + '<thead>' + headHtml + '</thead><tbody>' + buildBody('antes') + '</tbody></table></div>' +
+    '</div>' +
+    '<div class="stack-panel">' +
+      '<div class="stack-panel-label stack-panel-label-sap">Exportado SAP · ' + escapeHtml(state.despues ? state.despues.fileName : '') + '</div>' +
+      '<div class="stack-scroll" id="stackBottom"><table class="diff stack-table">' + colgroupHtml + '<thead>' + headHtml + '</thead><tbody>' + buildBody('despues') + '</tbody></table></div>' +
+    '</div>';
+
+  if (rows.length > maxRows){
+    wrap.innerHTML = html;
+    wrap.insertAdjacentHTML('beforeend', '<div style="padding:10px 18px; color:var(--text-faint); font-size:11.5px;">Mostrando ' + maxRows + ' de ' + rows.length.toLocaleString('es') + ' filas. Usa la búsqueda para acotar.</div>');
+  } else {
+    wrap.innerHTML = html;
+  }
+
+  const top = document.getElementById('stackTop');
+  const bottom = document.getElementById('stackBottom');
+  let syncing = false;
+  function link(from, to){
+    from.addEventListener('scroll', () => {
+      if (syncing) return;
+      syncing = true;
+      to.scrollTop = from.scrollTop;
+      to.scrollLeft = from.scrollLeft;
+      syncing = false;
+    });
+  }
+  link(top, bottom);
+  link(bottom, top);
+
+  [top, bottom].forEach(pane => {
+    pane.querySelectorAll('tbody tr[data-idx]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const r = shown[parseInt(tr.getAttribute('data-idx'), 10)];
+        if (r) openDetailModal(r, res);
+      });
+    });
+  });
+
+  wireStackToolbar(res);
+}
+
+function wireStackToolbar(res){
+  const toggle = document.getElementById('stackOnlyDiffToggle');
+  if (!toggle) return;
+  toggle.onchange = () => {
+    state.stackedOnlyDiff = toggle.checked;
+    renderStackedTable(res);
+  };
 }
 
 /* ---------------------------------------------------------------------
