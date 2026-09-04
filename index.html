@@ -1723,6 +1723,19 @@ function opCodeNum(v){
   return isFinite(n) ? n : null;
 }
 
+// Reads a DatPref-style numeric cell for the business rules. Blank and "-"
+// both mean "no aplica / cero" in SAP, so both resolve to 0 — never to a
+// missing value that would make a row look like it has "no data to compare".
+// Any other non-numeric text returns null (genuinely not a number).
+function datPrefNum(raw){
+  if (raw === '' || raw === null || raw === undefined) return 0;
+  if (typeof raw === 'number') return isFinite(raw) ? raw : null;
+  const s = String(raw).trim();
+  if (s === '' || s === '-') return 0;
+  const n = parseFloat(s.replace(',', '.'));
+  return isFinite(n) ? n : null;
+}
+
 function rowLabel(parsed, row){
   const gi = parsed.labels.indexOf('Grupo hojas ruta');
   const ci = parsed.labels.indexOf('Cont.grupo HRuta');
@@ -1748,8 +1761,7 @@ const BUSINESS_RULES = [
         const texto = String(row[tIdx] || '').trim().toUpperCase();
         if (texto.startsWith('SET UP')) return; // filas de arranque/cierre, no son la intermedia
         total++;
-        const norm = v => (v === '' || v === null || v === undefined) ? 0 : v;
-        const vals = [norm(row[d2]), norm(row[d3]), norm(row[d4]), norm(row[d5])];
+        const vals = [datPrefNum(row[d2]), datPrefNum(row[d3]), datPrefNum(row[d4]), datPrefNum(row[d5])];
         const allEqual = vals.every(v => v === vals[0]);
         if (!allEqual){
           violations.push({ key: rowLabel(parsed, row), detail: 'DatPref #2=' + vals[0] + ', #3=' + vals[1] + ', #4=' + vals[2] + ', #5=' + vals[3] });
@@ -1769,15 +1781,12 @@ const BUSINESS_RULES = [
       const others = [dIdx[1], dIdx[2], dIdx[3], dIdx[4]];
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
-        const raw1 = row[d1];
-        const v1 = typeof raw1 === 'number' ? raw1 : parseFloat(String(raw1 ?? '').replace(',', '.'));
-        if (!isFinite(v1) || v1 === 0) return;
+        const v1 = datPrefNum(row[d1]);
+        if (v1 === null || v1 === 0) return;
         const comparisons = [];
         others.forEach(i => {
-          const raw = row[i];
-          if (raw === '' || raw === null || raw === undefined) return;
-          const v = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(',', '.'));
-          if (!isFinite(v) || v === 0) return;
+          const v = datPrefNum(row[i]);
+          if (v === null || v === 0) return;
           comparisons.push({ label: parsed.labels[i], v });
         });
         if (!comparisons.length) return; // no aplica: sin dato para comparar
@@ -1801,10 +1810,8 @@ const BUSINESS_RULES = [
       const TOL = 0.01;
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
-        const raw1 = row[d1], raw5 = row[d5];
-        const v1 = typeof raw1 === 'number' ? raw1 : parseFloat(String(raw1 ?? '').replace(',', '.'));
-        const v5 = typeof raw5 === 'number' ? raw5 : parseFloat(String(raw5 ?? '').replace(',', '.'));
-        if (!isFinite(v1) || !isFinite(v5) || v1 === 0 || v5 === 0) return; // no aplica: sin dato en alguno de los dos
+        const v1 = datPrefNum(row[d1]), v5 = datPrefNum(row[d5]);
+        if (v1 === null || v5 === null || v1 === 0 || v5 === 0) return; // no aplica: sin dato en alguno de los dos
         total++;
         const ratio = v1 / v5;
         const nearest = Math.round(ratio);
@@ -1825,10 +1832,8 @@ const BUSINESS_RULES = [
       let total = 0; const violations = [];
       parsed.rows.forEach(row => {
         dIdx.forEach(i => {
-          const raw = row[i];
-          if (raw === '' || raw === null || raw === undefined) return;
-          const v = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(',', '.'));
-          if (!isFinite(v)) return;
+          const v = datPrefNum(row[i]);
+          if (v === null) return;
           total++;
           const scaled = v * 1000;
           const rounded = Math.round(scaled);
@@ -1855,7 +1860,7 @@ const BUSINESS_RULES = [
       parsed.rows.forEach(row => {
         if (opCodeNum(row[oi]) !== 10) return;
         total++;
-        const bad = dIdx.filter(i => { const v = row[i]; return !(v === 0 || v === '' || v === null || v === undefined); });
+        const bad = dIdx.filter(i => datPrefNum(row[i]) !== 0);
         if (bad.length){
           const details = bad.map(i => (parsed.labels[i]) + '=' + row[i]).join(', ');
           violations.push({ key: rowLabel(parsed, row), detail: details + ' (debería ser 0.000)' });
@@ -2234,6 +2239,9 @@ function normVal(v){
   }
   const s = String(v).trim();
   if (s === '') return '';
+  // SAP renders an empty/zero numeric cell as a bare "-" — treat it as 0 so
+  // it never shows up as a difference against an actual 0 on the other side.
+  if (s === '-') return 0;
   const n = parseNumericLoose(s);
   return n !== null ? roundNum(n) : s;
 }
