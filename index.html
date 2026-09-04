@@ -549,10 +549,31 @@
     user-select:none;
   }
   .stack-toggle input{ cursor:pointer; }
+  .stack-toolbar-right{
+    display:flex;
+    align-items:center;
+    gap:14px;
+  }
   .stack-toolbar-hint{
     font-size:11.5px;
     color:var(--text-faint);
   }
+  .stack-close-btn{
+    appearance:none;
+    border:1px solid var(--border-strong);
+    background:var(--surface);
+    color:var(--text-muted);
+    font-family:var(--font-body);
+    font-size:12px;
+    font-weight:600;
+    padding:6px 11px;
+    border-radius:7px;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+  .stack-close-btn:hover{ color:var(--text); border-color:var(--accent); }
   .stack-panel{
     border-bottom:2px solid var(--border-strong);
   }
@@ -572,9 +593,52 @@
     overflow:auto;
     max-height:34vh;
   }
-  table.stack-table{ width:max-content; min-width:100%; table-layout:fixed; }
-  table.stack-table th, table.stack-table td{ overflow:hidden; text-overflow:ellipsis; }
+  table.stack-table{ width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; }
+  table.stack-table th, table.stack-table td{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .field-val.na{ color:var(--text-faint); font-style:italic; }
+
+  /* Fullscreen stacked comparison: the whole compare box takes over the
+     viewport so all the priority columns (Grupo hojas ruta through Unidad
+     valor prefij. #5) can fit without horizontal scrolling. */
+  #comparePanel.stacked-fullscreen{
+    position:fixed;
+    inset:0;
+    z-index:45;
+    border-radius:0;
+    display:flex;
+    flex-direction:column;
+  }
+  body.stacked-fullscreen-active{ overflow:hidden; }
+  #comparePanel.stacked-fullscreen .toolbar{ flex:0 0 auto; }
+  #comparePanel.stacked-fullscreen .table-wrap{
+    flex:1;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    max-height:none;
+  }
+  #comparePanel.stacked-fullscreen .stack-toolbar{ flex:0 0 auto; }
+  #comparePanel.stacked-fullscreen .stack-panel{
+    flex:1;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+  }
+  #comparePanel.stacked-fullscreen .stack-panel-label{ flex:0 0 auto; }
+  #comparePanel.stacked-fullscreen .stack-scroll{ flex:1; min-height:0; max-height:none; }
+
+  /* Frozen identifying columns (Estado, Grupo hojas ruta, Cont.grupo HRuta,
+     Operación) stay pinned to the left while the rest of the row scrolls
+     under them, both in the header (sticky on two axes at once) and body. */
+  table.stack-table th.sticky-col, table.stack-table td.sticky-col{
+    position:sticky;
+    background:var(--surface);
+  }
+  table.stack-table thead th.sticky-col{ z-index:3; background:var(--surface-2); }
+  table.stack-table tbody td.sticky-col{ z-index:2; }
+  table.stack-table tbody tr:hover td.sticky-col{ background:var(--surface-2); }
+  table.stack-table .sticky-col-last{ box-shadow: 2px 0 5px -2px rgba(20,30,40,.25); }
 
   .search{
     display:flex;
@@ -1234,7 +1298,7 @@
     <p class="scope-note" id="scopeNote" style="display:none;"></p>
     <div class="stat-row" id="statRow"></div>
 
-    <section class="panel">
+    <section class="panel" id="comparePanel">
       <div class="toolbar">
         <div class="tabs" id="tabs"></div>
         <div class="search">
@@ -1542,6 +1606,7 @@ const state = {
   templateReview: null, // { headerReview, ruleResults, fileName }
   materialGroups: null, // observaciones agrupadas por hoja de ruta
   activeTab: 'ok',
+  lastNonStackedTab: 'ok',
   search: '',
   stackedOnlyDiff: true
 };
@@ -2405,7 +2470,7 @@ const TAB_DEFS = [
   { id: 'stacked', label: 'Plantilla vs SAP (vista apilada)', cls: 't-stacked' },
 ];
 
-function statusPillHtml(status){
+function statusPillHtml(status, dotOnly){
   const map = {
     changed: ['Con diferencias', 'var(--warn)'],
     missing: ['No efectuada', 'var(--danger)'],
@@ -2413,6 +2478,9 @@ function statusPillHtml(status){
     ok: ['Efectuada', 'var(--ok)'],
   };
   const [text, color] = map[status];
+  // dotOnly: the stacked view's Estado column is too narrow for the full
+  // label, so it shows just the colored dot with the label as a tooltip.
+  if (dotOnly) return '<span class="status-pill" style="color:' + color + ';" title="' + text + '"></span>';
   return '<span class="status-pill" style="color:' + color + ';">' + text + '</span>';
 }
 
@@ -2453,9 +2521,15 @@ function renderTabs(counts, total){
   wrap.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
       state.activeTab = btn.getAttribute('data-tab');
+      if (state.activeTab !== 'stacked') state.lastNonStackedTab = state.activeTab;
       renderAll();
     });
   });
+}
+
+function exitStackedFullscreen(){
+  state.activeTab = state.lastNonStackedTab || 'ok';
+  renderAll();
 }
 
 function cellDisplay(v){
@@ -2463,8 +2537,14 @@ function cellDisplay(v){
   return escapeHtml(String(v));
 }
 
+function setStackedFullscreen(on){
+  document.getElementById('comparePanel').classList.toggle('stacked-fullscreen', on);
+  document.body.classList.toggle('stacked-fullscreen-active', on);
+}
+
 function renderTable(res){
-  if (state.activeTab === 'stacked'){ renderStackedTable(res); return; }
+  if (state.activeTab === 'stacked'){ setStackedFullscreen(true); renderStackedTable(res); return; }
+  setStackedFullscreen(false);
   const wrap = document.getElementById('tableWrap');
   let rows = res.results.filter(r => state.activeTab === 'all' ? true : r.status === state.activeTab);
 
@@ -2542,6 +2622,17 @@ function stackColWidth(label){
   return Math.max(90, Math.min(220, label.length * 7 + 34));
 }
 
+// These identify the row and stay pinned to the left of both panels while
+// the rest of the columns scroll underneath — the order here is also the
+// order they're pinned in.
+const STACK_FROZEN_LABELS = ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Operación'];
+const STACK_STATUS_COL_W = 64;
+// Everything up to and including this column is squeezed to fit the window
+// width so the user never has to scroll horizontally to see it; anything
+// past it (Clase de actividad #5 onward, and the unused DatPref #6 block)
+// is allowed to overflow into horizontal scroll.
+const STACK_PRIORITY_LAST_LABEL = 'Unidad valor prefij. #5';
+
 function renderStackedTable(res){
   const wrap = document.getElementById('tableWrap');
   let rows = res.results;
@@ -2558,8 +2649,10 @@ function renderStackedTable(res){
 
   const toolbarHtml = '<div class="stack-toolbar">' +
     '<label class="stack-toggle"><input type="checkbox" id="stackOnlyDiffToggle"' + (state.stackedOnlyDiff ? ' checked' : '') + '> Solo hojas de ruta / operaciones con diferencias</label>' +
-    '<span class="stack-toolbar-hint">El scroll de ambos paneles está sincronizado, fila por fila.</span>' +
-    '</div>';
+    '<div class="stack-toolbar-right">' +
+    '<span class="stack-toolbar-hint">Scroll sincronizado · Grupo, Contador y Operación fijos</span>' +
+    '<button class="stack-close-btn" id="stackCloseBtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg> Salir de pantalla completa</button>' +
+    '</div></div>';
 
   if (!rows.length){
     wrap.innerHTML = toolbarHtml + '<div class="empty-state"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><div>No hay filas en esta categoría' + (q ? ' para tu búsqueda.' : '.') + '</div></div>';
@@ -2567,24 +2660,64 @@ function renderStackedTable(res){
     return;
   }
 
-  const keySet = new Set(res.keyLabels);
-  const cols = res.columns;
+  // Reorder so the frozen identifying columns come first (right after
+  // Estado); everything else keeps its original relative order.
+  const frozenCols = STACK_FROZEN_LABELS.filter(l => res.columns.includes(l));
+  const frozenSet = new Set(frozenCols);
+  const cols = frozenCols.concat(res.columns.filter(c => !frozenSet.has(c)));
+
   const maxRows = 600;
   const shown = rows.slice(0, maxRows);
-  const widths = cols.map(stackColWidth);
 
-  const colgroupHtml = '<colgroup><col style="width:64px;">' +
-    cols.map((c, i) => '<col style="width:' + widths[i] + 'px;">').join('') + '</colgroup>';
+  // Priority columns (Grupo hojas ruta ... Unidad valor prefij. #5) split the
+  // available window width evenly so they all fit without horizontal scroll;
+  // anything after that keeps a comfortable fixed width and may need scroll.
+  let priorityEnd = cols.indexOf(STACK_PRIORITY_LAST_LABEL);
+  if (priorityEnd === -1) priorityEnd = cols.length - 1;
+  const priorityCols = cols.slice(0, priorityEnd + 1);
+  const overflowCols = cols.slice(priorityEnd + 1);
 
-  const headHtml = '<tr><th>Estado</th>' +
-    cols.map((c, i) => {
-      const soloSap = res.aIndexByLabel[c] === undefined;
-      const soloPlantilla = res.dIndexByLabel[c] === undefined;
-      const isHl = res.highlightLabels.has(c);
-      const isExcluded = res.excludedLabels.has(c);
-      const note = soloSap ? '<br><span class="col-note">solo en SAP</span>' : (soloPlantilla ? '<br><span class="col-note">solo en plantilla</span>' : (isExcluded ? '<br><span class="col-note">excluida</span>' : (isHl ? '<br><span class="col-highlight-tag">resaltada</span>' : '')));
-      const cls = [keySet.has(c) ? 'key-col' : '', isHl ? 'col-highlight' : ''].filter(Boolean).join(' ');
-      return '<th' + (cls ? ' class="' + cls + '"' : '') + '>' + escapeHtml(c) + note + '</th>';
+  const containerWidth = wrap.clientWidth || window.innerWidth;
+  const MIN_PRIORITY_W = 54;
+  const available = Math.max(0, containerWidth - STACK_STATUS_COL_W - 20);
+  const priorityW = priorityCols.length ? Math.max(MIN_PRIORITY_W, Math.floor(available / priorityCols.length)) : MIN_PRIORITY_W;
+
+  const widths = {};
+  priorityCols.forEach(c => widths[c] = priorityW);
+  overflowCols.forEach(c => widths[c] = stackColWidth(c));
+
+  const frozenOffsets = {};
+  let acc = STACK_STATUS_COL_W;
+  frozenCols.forEach(c => { frozenOffsets[c] = acc; acc += widths[c]; });
+  const lastFrozenLabel = frozenCols.length ? frozenCols[frozenCols.length - 1] : null;
+
+  const colgroupHtml = '<colgroup><col style="width:' + STACK_STATUS_COL_W + 'px;">' +
+    cols.map(c => '<col style="width:' + widths[c] + 'px;">').join('') + '</colgroup>';
+
+  // Builds the class/style/title attribute string for one <th>/<td>,
+  // combining sticky positioning, the frozen-block edge shadow, the
+  // highlighted-column tint and a hover title in one place.
+  function stackCellAttrs(opts){
+    opts = opts || {};
+    const classes = [];
+    if (opts.extraClass) classes.push(opts.extraClass);
+    if (opts.sticky) classes.push('sticky-col');
+    if (opts.stickyLast) classes.push('sticky-col-last');
+    if (opts.highlight) classes.push('col-highlight');
+    let s = classes.length ? ' class="' + classes.join(' ') + '"' : '';
+    if (opts.sticky) s += ' style="left:' + opts.offset + 'px;"';
+    if (opts.title) s += ' title="' + escapeHtml(opts.title) + '"';
+    return s;
+  }
+
+  const headHtml = '<tr>' +
+    '<th' + stackCellAttrs({ sticky: true, offset: 0 }) + '>Estado</th>' +
+    cols.map(c => {
+      const isFrozen = frozenOffsets[c] !== undefined;
+      return '<th' + stackCellAttrs({
+        sticky: isFrozen, stickyLast: c === lastFrozenLabel, offset: frozenOffsets[c],
+        highlight: res.highlightLabels.has(c), title: c
+      }) + '>' + escapeHtml(c) + '</th>';
     }).join('') + '</tr>';
 
   function buildBody(side){
@@ -2592,11 +2725,10 @@ function renderStackedTable(res){
       const diffByCol = {};
       r.diffs.forEach(d => diffByCol[d.col] = d);
       let html = '<tr class="row-' + r.status + '" data-idx="' + idx + '">';
-      html += '<td class="status-cell">' + statusPillHtml(r.status) + '</td>';
+      html += '<td' + stackCellAttrs({ extraClass: 'status-cell', sticky: true, offset: 0 }) + '>' + statusPillHtml(r.status, true) + '</td>';
       cols.forEach(col => {
-        const tdCls = res.highlightLabels.has(col) ? ' class="col-highlight"' : '';
         const idxCol = side === 'antes' ? res.aIndexByLabel[col] : res.dIndexByLabel[col];
-        let content;
+        let content, rawForTitle = '';
         if (side === 'antes' && r.status === 'new'){
           content = '<span class="field-val na">no existe en plantilla</span>';
         } else if (side === 'despues' && r.status === 'missing'){
@@ -2605,9 +2737,14 @@ function renderStackedTable(res){
           content = cellDisplay('');
         } else {
           const v = side === 'antes' ? r.rowA[idxCol] : r.rowD[idxCol];
+          rawForTitle = v === null || v === undefined ? '' : String(v);
           content = diffByCol[col] ? '<span class="' + (side === 'antes' ? 'cell-old' : 'cell-new') + '">' + cellDisplay(v) + '</span>' : cellDisplay(v);
         }
-        html += '<td' + tdCls + '>' + content + '</td>';
+        const isFrozen = frozenOffsets[col] !== undefined;
+        html += '<td' + stackCellAttrs({
+          sticky: isFrozen, stickyLast: col === lastFrozenLabel, offset: frozenOffsets[col],
+          highlight: res.highlightLabels.has(col), title: rawForTitle
+        }) + '>' + content + '</td>';
       });
       html += '</tr>';
       return html;
@@ -2624,11 +2761,9 @@ function renderStackedTable(res){
       '<div class="stack-scroll" id="stackBottom"><table class="diff stack-table">' + colgroupHtml + '<thead>' + headHtml + '</thead><tbody>' + buildBody('despues') + '</tbody></table></div>' +
     '</div>';
 
+  wrap.innerHTML = html;
   if (rows.length > maxRows){
-    wrap.innerHTML = html;
     wrap.insertAdjacentHTML('beforeend', '<div style="padding:10px 18px; color:var(--text-faint); font-size:11.5px;">Mostrando ' + maxRows + ' de ' + rows.length.toLocaleString('es') + ' filas. Usa la búsqueda para acotar.</div>');
-  } else {
-    wrap.innerHTML = html;
   }
 
   const top = document.getElementById('stackTop');
@@ -2660,11 +2795,14 @@ function renderStackedTable(res){
 
 function wireStackToolbar(res){
   const toggle = document.getElementById('stackOnlyDiffToggle');
-  if (!toggle) return;
-  toggle.onchange = () => {
-    state.stackedOnlyDiff = toggle.checked;
-    renderStackedTable(res);
-  };
+  if (toggle){
+    toggle.onchange = () => {
+      state.stackedOnlyDiff = toggle.checked;
+      renderStackedTable(res);
+    };
+  }
+  const closeBtn = document.getElementById('stackCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', exitStackedFullscreen);
 }
 
 /* ---------------------------------------------------------------------
@@ -2757,7 +2895,12 @@ document.getElementById('modalBackdrop').addEventListener('click', e => {
   if (e.target.id === 'modalBackdrop') closeDetailModal();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeDetailModal();
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('modalBackdrop').classList.contains('open')){
+    closeDetailModal();
+  } else if (state.activeTab === 'stacked'){
+    exitStackedFullscreen();
+  }
 });
 
 function renderAll(){
