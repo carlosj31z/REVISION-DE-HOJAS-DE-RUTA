@@ -1245,6 +1245,18 @@
           </div>
           <div class="chip-row" id="highlightChips"></div>
         </div>
+        <div>
+          <div class="config-group-label">
+            <span class="cg-title">Alcance de comparación</span>
+            <span class="cg-hint">SAP solo modifica los DatPref; el resto de columnas puede variar sin ser un cambio real</span>
+          </div>
+          <div class="chip-row">
+            <label class="chip-check" id="compareScopeChip">
+              <input type="checkbox" id="compareOnlyDatPrefToggle" />
+              Comparar solo valores DatPref (ignorar Texto breve operación, Puesto de trabajo, Operación Superior, Descripción, etc.)
+            </label>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -1296,6 +1308,7 @@
       </button>
     </div>
     <p class="scope-note" id="scopeNote" style="display:none;"></p>
+    <p class="scope-note" id="datPrefScopeNote" style="display:none;">ℹ Alcance de comparación: solo se evalúan los valores DatPref. Texto breve operación, Puesto de trabajo, Operación Superior, Descripción y demás columnas se muestran pero no cuentan para marcar una fila como "con diferencias".</p>
     <div class="stat-row" id="statRow"></div>
 
     <section class="panel" id="comparePanel">
@@ -1608,7 +1621,8 @@ const state = {
   activeTab: 'ok',
   lastNonStackedTab: 'ok',
   search: '',
-  stackedOnlyDiff: true
+  stackedOnlyDiff: true,
+  compareOnlyDatPref: false
 };
 
 const DEFAULT_KEY_NAMES = ['Grupo hojas ruta', 'Cont.grupo HRuta', 'Centro', 'Operación'];
@@ -1720,6 +1734,9 @@ function refreshConfigSummary(){
   if (hlNames.length){
     text += '  ·  <b>Resaltando:</b> ' + hlNames.join(', ');
   }
+  if (state.compareOnlyDatPref){
+    text += '  ·  <b>Alcance:</b> solo DatPref';
+  }
   el.innerHTML = text;
 }
 
@@ -1753,6 +1770,20 @@ function refreshConfigPanel(){
     else state.highlightIndices = state.highlightIndices.filter(x => x !== i);
     if (state.compare) renderAll();
   }, 'highlight-on');
+
+  const scopeToggle = document.getElementById('compareOnlyDatPrefToggle');
+  const scopeChip = document.getElementById('compareScopeChip');
+  scopeToggle.checked = state.compareOnlyDatPref;
+  scopeChip.classList.toggle('on', state.compareOnlyDatPref);
+  scopeToggle.onchange = () => {
+    state.compareOnlyDatPref = scopeToggle.checked;
+    scopeChip.classList.toggle('on', scopeToggle.checked);
+    refreshConfigSummary();
+    if (state.compare){
+      state.compare = runComparison();
+      renderAll();
+    }
+  };
 
   refreshConfigSummary();
 }
@@ -2381,6 +2412,16 @@ function runComparison(){
   // en la tabla, pero nunca marca una fila como "con diferencias".
   const excludedLabels = new Set(['DatPref #6']);
 
+  // Modo "solo DatPref": SAP, en la práctica, únicamente aplica cambios sobre
+  // los valores DatPref — Texto breve operación, Puesto de trabajo, Operación
+  // Superior, Descripción, etc. pueden diferir por motivos ajenos al cambio
+  // solicitado, así que no deben marcar la fila como "con diferencias". Se
+  // siguen mostrando en la tabla, solo se excluyen de la detección.
+  if (state.compareOnlyDatPref){
+    const isDatPref = lbl => lbl === 'DatPref' || /^DatPref #\d+$/.test(lbl);
+    columns.forEach(col => { if (!isDatPref(col)) excludedLabels.add(col); });
+  }
+
   const dIndexByLabel = {};
   d.labels.forEach((lbl, i) => { if (!(lbl in dIndexByLabel)) dIndexByLabel[lbl] = i; });
   const aIndexByLabel = {};
@@ -2506,6 +2547,8 @@ function renderStats(res){
   } else {
     note.style.display = 'none';
   }
+
+  document.getElementById('datPrefScopeNote').style.display = state.compareOnlyDatPref ? 'block' : 'none';
 
   return counts;
 }
