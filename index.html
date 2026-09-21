@@ -1881,6 +1881,10 @@ function datPrefNum(raw){
   return isFinite(n) ? n : null;
 }
 
+function isDatPrefLabel(lbl){
+  return lbl === 'DatPref' || /^DatPref #\d+$/.test(lbl);
+}
+
 function rowLabel(parsed, row){
   const gi = parsed.labels.indexOf('Grupo hojas ruta');
   const ci = parsed.labels.indexOf('Cont.grupo HRuta');
@@ -2391,6 +2395,16 @@ function normVal(v){
   return n !== null ? roundNum(n) : s;
 }
 
+// Same idea as normVal, but for DatPref columns specifically: SAP imports a
+// blank DatPref cell in the plantilla as 0, so a blank there must compare
+// equal to an actual 0 on the SAP side — not just "-" (already handled by
+// normVal), but a truly empty cell too. Falls back to normVal for the rare
+// non-numeric DatPref value so it's never silently dropped from comparison.
+function datPrefCompareVal(v){
+  const n = datPrefNum(v);
+  return n !== null ? roundNum(n) : normVal(v);
+}
+
 function buildKey(row, labels, keyLabels){
   return keyLabels.map(lbl => {
     const idx = labels.indexOf(lbl);
@@ -2418,8 +2432,7 @@ function runComparison(){
   // solicitado, así que no deben marcar la fila como "con diferencias". Se
   // siguen mostrando en la tabla, solo se excluyen de la detección.
   if (state.compareOnlyDatPref){
-    const isDatPref = lbl => lbl === 'DatPref' || /^DatPref #\d+$/.test(lbl);
-    columns.forEach(col => { if (!isDatPref(col)) excludedLabels.add(col); });
+    columns.forEach(col => { if (!isDatPrefLabel(col)) excludedLabels.add(col); });
   }
 
   const dIndexByLabel = {};
@@ -2469,7 +2482,12 @@ function runComparison(){
         if (excludedLabels.has(col)) return;
         const va = rowA[ai];
         const vd = rowD[di];
-        if (normVal(va) !== normVal(vd)){
+        // DatPref columns compare blank-vs-0 as equal (SAP imports a blank
+        // DatPref as 0); every other column uses the general normalizer.
+        const equal = isDatPrefLabel(col)
+          ? datPrefCompareVal(va) === datPrefCompareVal(vd)
+          : normVal(va) === normVal(vd);
+        if (!equal){
           diffs.push({ col, before: va, after: vd });
         }
       });
