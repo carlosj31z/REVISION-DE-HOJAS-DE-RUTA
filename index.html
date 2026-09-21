@@ -1708,6 +1708,13 @@ async function handleFile(slot, file){
     // el buffer crudo se conserva para poder reconstruir el xlsx corregido
     // reutilizando byte a byte todo lo que no sean los DatPref (ver sección 9).
     parsed.buffer = buf;
+    if (slot === 'sapBase'){
+      // a diferencia de "rows" (que descarta cualquier fila totalmente vacía,
+      // incluso si está en medio de los datos), denseRows conserva una
+      // entrada por cada número de fila de Excel — es lo que necesita el
+      // corrector para saber a qué fila del XML crudo corresponde cada dato.
+      parsed.denseRows = grid.slice(1);
+    }
     state[slot] = parsed;
     const rowCount = parsed.rows.length;
     setDropzoneState(slot, 'file',
@@ -3583,6 +3590,19 @@ async function resolveFirstSheetPath(zip){
   return target;
 }
 
+// Renumera una fila completa de r="oldNum" a r="newNum": tanto el propio
+// <row> como cada referencia de celda <c r="COLoldNum"> dentro de él. Se usa
+// para que las filas que sobreviven al recorte por alcance queden numeradas
+// de forma consecutiva (2,3,4,5…) — si se dejan los números de fila
+// originales del export (con huecos donde se quitaron filas), Excel muestra
+// esos huecos como filas en blanco entre los datos reales.
+function renumberRow(rowXml, oldNum, newNum){
+  if (oldNum === newNum) return rowXml;
+  rowXml = rowXml.replace(new RegExp('(<row\\b[^>]*\\br=")' + oldNum + '(")'), '$1' + newNum + '$2');
+  rowXml = rowXml.replace(new RegExp('(<c\\b[^>]*\\br="[A-Z]+)' + oldNum + '(")', 'g'), '$1' + newNum + '$2');
+  return rowXml;
+}
+
 // Sobreescribe el <v> de la celda "ref" (p. ej. "K5") dentro del XML crudo
 // de una fila, conservando su atributo de estilo (s="N") tal cual estaba
 // — nunca se toca el estilo, solo el valor numérico.
@@ -3651,32 +3671,37 @@ async function buildCorrectedTemplateFromBase(){
   const rowRe = /<row\b[^>]*(?:\/>|>[\s\S]*?<\/row>)/g;
   const rowBlocks = sdMatch[1].match(rowRe) || [];
 
-  let keptCount = 0, patchedRowCount = 0, changedCells = 0, maxKeptRowNum = 1;
+  let keptCount = 0, patchedRowCount = 0, changedCells = 0;
   const baseHrSet = new Set();
   const outBlocks = [];
+  let nextRowNum = 2; // las filas que sobreviven se renumeran sin huecos, para que no aparezcan como filas en blanco
+
+  function keepRow(block, rNum){
+    outBlocks.push(renumberRow(block, rNum, nextRowNum));
+    nextRowNum++;
+  }
 
   rowBlocks.forEach(block => {
     const rNumMatch = /\br="(\d+)"/.exec(block);
     const rNum = rNumMatch ? parseInt(rNumMatch[1], 10) : null;
     if (rNum === null || rNum === 1){
-      outBlocks.push(block); // encabezado u otra fila sin número reconocible: se conserva
+      outBlocks.push(block); // encabezado u otra fila sin número reconocible: se conserva tal cual (siempre fila 1)
       return;
     }
     const dataIdx = rNum - 2;
-    if (dataIdx < 0 || dataIdx >= base.rows.length) return; // fila vacía sobrante al final: se descarta
-    const rowVals = base.rows[dataIdx];
+    if (dataIdx < 0 || dataIdx >= base.denseRows.length) return; // fuera del rango de datos: se descarta
+    const rowVals = base.denseRows[dataIdx];
 
-    if (bGi === -1 || bCi === -1){ outBlocks.push(block); maxKeptRowNum = rNum; return; } // no se puede acotar por alcance: se conserva tal cual
+    if (bGi === -1 || bCi === -1){ keepRow(block, rNum); return; } // no se puede acotar por alcance: se conserva tal cual
 
     const hrKey = String(rowVals[bGi] ?? '').trim() + '␟' + String(rowVals[bCi] ?? '').trim();
     baseHrSet.add(hrKey);
     if (!scopeSet.has(hrKey)) return; // hoja de ruta / contador que no está en la plantilla: se excluye
 
     keptCount++;
-    maxKeptRowNum = rNum;
     const fullKey = buildKey(rowVals, base.labels, keyLabels);
     const antesRow = antesMap.get(fullKey);
-    if (!antesRow){ outBlocks.push(block); return; } // misma hoja de ruta, pero esta operación no se tocó
+    if (!antesRow){ keepRow(block, rNum); return; } // misma hoja de ruta, pero esta operación no se tocó
 
     let patchedBlock = block;
     let rowChanged = false;
@@ -3693,14 +3718,15 @@ async function buildCorrectedTemplateFromBase(){
       }
       if (numVal === null) return; // texto realmente no numérico en la plantilla: se deja el valor de SAP
 
-      const ref = colIndexToLetter(b.dp) + rNum;
+      const ref = colIndexToLetter(b.dp) + rNum; // el patch se hace ANTES de renumerar, con la referencia original
       patchedBlock = patchCellValue(patchedBlock, ref, numVal);
       if (normVal(rowVals[b.dp]) !== normVal(numVal)){ changedCells++; rowChanged = true; }
     });
     if (rowChanged) patchedRowCount++;
-    outBlocks.push(patchedBlock);
+    keepRow(patchedBlock, rNum);
   });
 
+  const maxKeptRowNum = nextRowNum - 1;
   let newSheetXml = rawSheetXml.slice(0, sdMatch.index) +
     '<sheetData>' + outBlocks.join('') + '</sheetData>' +
     rawSheetXml.slice(sdMatch.index + sdMatch[0].length);
