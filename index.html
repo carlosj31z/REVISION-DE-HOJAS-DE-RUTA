@@ -1938,6 +1938,47 @@ function isBlankCell(v){
   return v === '' || v === null || v === undefined || String(v).trim() === '';
 }
 
+// Anchos de columna (en unidades de carácter de Excel) tomados exactamente
+// de la plantilla oficial que exporta SAP, para que el archivo corregido se
+// vea idéntico. Las columnas base se mapean por nombre; los bloques DatPref
+// se mapean por número de bloque ya que su encabezado se repite igual en los 6.
+const EXACT_BASE_WIDTHS = {
+  'Grupo hojas ruta': 12,
+  'Cont.grupo HRuta': 11,
+  'Descripción': 39,
+  'Operación': 11,
+  'Indicador fase': 10,
+  'Operación Superior': 6,
+  'Puesto de trabajo': 19,
+  'Texto breve operación': 23,
+  'Cantidad base': 15,
+  'Unidad medida op.': 12,
+};
+const EXACT_BLOCK_WIDTHS = {
+  1: { dp: 9, unit: 14, clase: 8 },
+  2: { dp: 9, unit: 14, clase: 8 },
+  3: { dp: 9, unit: 14, clase: 8 },
+  4: { dp: 9, unit: 14, clase: 8 },
+  5: { dp: 9, unit: 14, clase: 20 },
+  6: { dp: 9, unit: 22, clase: 20 },
+};
+const EXACT_WIDTH_FALLBACK = 16;
+
+function computeExactColumnWidths(labels){
+  const widths = new Array(labels.length).fill(EXACT_WIDTH_FALLBACK);
+  labels.forEach((lbl, i) => {
+    if (EXACT_BASE_WIDTHS[lbl] !== undefined) widths[i] = EXACT_BASE_WIDTHS[lbl];
+  });
+  datPrefBlockColumns(labels).forEach(b => {
+    const w = EXACT_BLOCK_WIDTHS[b.block];
+    if (!w) return;
+    if (b.dp !== -1) widths[b.dp] = w.dp;
+    if (b.unit !== -1) widths[b.unit] = w.unit;
+    if (b.clase !== -1) widths[b.clase] = w.clase;
+  });
+  return widths;
+}
+
 // Corrige las filas de la plantilla "Antes": normaliza los valores DatPref
 // (blanco/guion -> 0, tipo numérico real) y ajusta qué columnas Unidad valor
 // prefij. / Clase de actividad deben estar vacías o rellenas según el patrón
@@ -3260,17 +3301,53 @@ function buildSheetXml(headers, rows, rowStyleFn){
     '</worksheet>';
 }
 
-// Like buildSheetXml, but styles are resolved per cell (via cellFormat, one
-// entry per row mapping colIndex -> 'dec3'|'dec1') instead of per row — used
-// for the corrected-plantilla export where DatPref columns need a specific
-// decimal format while every other column keeps the default style.
-function buildCorrectedTemplateSheetXml(headers, rows, cellFormat){
+// Local style indices for the "exact plantilla" styles.xml built by
+// buildExactPlantillaStylesXml — independent from XLSX_STYLE, which belongs
+// to the shared styles.xml used by the other exports (different font/fills).
+const EXACT_STYLE = { DEFAULT: 0, HEADER: 1, DEC3: 2, DEC1: 3 };
+
+function buildExactPlantillaStylesXml(){
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<numFmts count="2">' +
+    '<numFmt numFmtId="164" formatCode="#,##0.000"/>' +
+    '<numFmt numFmtId="165" formatCode="#,##0.0"/>' +
+    '</numFmts>' +
+    '<fonts count="1"><font><sz val="10"/><name val="Arial"/></font></fonts>' +
+    // fillId 0 (none) and 1 (gray125) are Excel's two reserved built-in
+    // fills — a custom fill must start at index 2, never reuse index 1.
+    '<fills count="3">' +
+    '<fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFC0C0C0"/><bgColor indexed="64"/></patternFill></fill>' +
+    '</fills>' +
+    '<borders count="2">' +
+    '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+    '<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>' +
+    '</borders>' +
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="4">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top"/></xf>' +
+    '<xf numFmtId="0" fontId="0" fillId="2" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>' +
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>' +
+    '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>' +
+    '</cellXfs>' +
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '</styleSheet>';
+}
+
+// Styles are resolved per cell (via cellFormat, one entry per row mapping
+// colIndex -> 'dec3'|'dec1') instead of per row, and column widths come from
+// computeExactColumnWidths — together these reproduce the SAP reference
+// plantilla's exact cell formatting (font, fills, borders, alignment,
+// number formats and column widths), not just the DatPref decimal places.
+function buildCorrectedTemplateSheetXml(headers, rows, cellFormat, colWidths){
   let rowsXml = '';
 
   let headerCells = '';
   headers.forEach((h, ci) => {
     const ref = colIndexToLetter(ci) + '1';
-    headerCells += '<c r="' + ref + '" s="' + XLSX_STYLE.HEADER + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(h || '') + '</t></is></c>';
+    headerCells += '<c r="' + ref + '" s="' + EXACT_STYLE.HEADER + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(h || '') + '</t></is></c>';
   });
   rowsXml += '<row r="1">' + headerCells + '</row>';
 
@@ -3281,7 +3358,7 @@ function buildCorrectedTemplateSheetXml(headers, rows, cellFormat){
     row.forEach((v, ci) => {
       const ref = colIndexToLetter(ci) + rNum;
       const fmt = rowFormat[ci];
-      const style = fmt === 'dec3' ? XLSX_STYLE.DEC3 : fmt === 'dec1' ? XLSX_STYLE.DEC1 : XLSX_STYLE.DEFAULT;
+      const style = fmt === 'dec3' ? EXACT_STYLE.DEC3 : fmt === 'dec1' ? EXACT_STYLE.DEC1 : EXACT_STYLE.DEFAULT;
       if (typeof v === 'number' && isFinite(v)){
         cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
       } else if (v === '' || v === null || v === undefined){
@@ -3293,11 +3370,10 @@ function buildCorrectedTemplateSheetXml(headers, rows, cellFormat){
     rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
   });
 
-  const colCount = headers.length;
+  const colsXml = colWidths.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
-    '<cols><col min="1" max="' + colCount + '" width="16" customWidth="1"/></cols>' +
+    '<cols>' + colsXml + '</cols>' +
     '<sheetData>' + rowsXml + '</sheetData>' +
     '</worksheet>';
 }
@@ -3348,7 +3424,7 @@ function buildWorkbookXml(sheetNames){
     '<sheets>' + sheets + '</sheets></workbook>';
 }
 
-function buildExportWorkbook(sheetNames, sheetsData){
+function buildExportWorkbook(sheetNames, sheetsData, stylesXml){
   const enc = new TextEncoder();
   const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -3375,7 +3451,7 @@ function buildExportWorkbook(sheetNames, sheetsData){
     { path: '_rels/.rels', data: enc.encode(rootRels) },
     { path: 'xl/workbook.xml', data: enc.encode(buildWorkbookXml(sheetNames)) },
     { path: 'xl/_rels/workbook.xml.rels', data: enc.encode(wbRels) },
-    { path: 'xl/styles.xml', data: enc.encode(buildStylesXml()) },
+    { path: 'xl/styles.xml', data: enc.encode(stylesXml || buildStylesXml()) },
   ];
   sheetsData.forEach((xml, i) => {
     files.push({ path: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: enc.encode(xml) });
@@ -3618,8 +3694,16 @@ document.getElementById('btnExportReview').addEventListener('click', exportTempl
 function exportCorrectedTemplateToExcel(){
   if (!state.antes) return;
   const { rows, cellFormat, changedCells } = correctTemplateRows(state.antes);
-  const xml = buildCorrectedTemplateSheetXml(state.antes.headers, rows, cellFormat);
-  const bytes = buildExportWorkbook(['Plantilla corregida'], [xml]);
+
+  // Cantidad base usa el mismo formato numérico (#,##0.000) que los DatPref
+  // de 3 decimales en la plantilla de referencia — se marca aparte porque
+  // correctTemplateRows solo se ocupa de los bloques DatPref.
+  const qi = state.antes.labels.indexOf('Cantidad base');
+  if (qi !== -1) cellFormat.forEach(rowFmt => { rowFmt[qi] = 'dec3'; });
+
+  const colWidths = computeExactColumnWidths(state.antes.labels);
+  const xml = buildCorrectedTemplateSheetXml(state.antes.headers, rows, cellFormat, colWidths);
+  const bytes = buildExportWorkbook(['Plantilla corregida'], [xml], buildExactPlantillaStylesXml());
   downloadWorkbook(bytes, 'plantilla-corregida-' + todayStamp() + '.xlsx');
 
   const status = document.getElementById('statusLine');
