@@ -1269,7 +1269,7 @@
     <div class="actions-row">
       <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
       <div class="actions-row-buttons">
-        <button class="btn-export" id="btnCorrectTemplate" disabled title="Corrige el formato de los DatPref de la plantilla 'Antes' para que SAP no los rechace">
+        <button class="btn-export" id="btnCorrectTemplate" disabled title="Fusiona la plantilla 'Antes' con el export de SAP 'Después': todo excepto los DatPref se toma tal cual de SAP, para que el formato de celda sea exactamente el que SAP espera">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           Corregir y exportar plantilla
         </button>
@@ -2043,6 +2043,92 @@ function correctTemplateRows(parsed){
   };
 }
 
+// Fusiona la plantilla "Antes" (que trae los DatPref corregidos que se
+// quieren aplicar) con el export real de SAP subido como "Después": para
+// cada fila de la plantilla (emparejada por la misma clave que usa la
+// comparación, normalmente Grupo hojas ruta + Cont.grupo HRuta + Operación),
+// TODAS las columnas —incluyendo Unidad valor prefij. y Clase de
+// actividad— se toman tal cual del export de SAP (formato garantizado
+// correcto porque SAP mismo lo generó); solo el valor numérico de cada
+// DatPref se sobreescribe con el de la plantilla. El bloque 6 (DatPref #6)
+// nunca lleva Unidad/Clase, se fuerce lo que se fuerce desde SAP. Si una
+// fila de la plantilla no tiene par en el export de SAP, se usa la fila de
+// la plantilla tal cual (con la misma corrección de formato de siempre) y
+// se cuenta aparte para que el usuario la revise.
+function mergeCorrectedTemplateRows(){
+  const a = state.antes, d = state.despues;
+  const keyLabels = state.keyIndices.map(i => a.labels[i]);
+
+  const despuesMap = new Map();
+  d.rows.forEach(row => {
+    const k = buildKey(row, d.labels, keyLabels);
+    if (!despuesMap.has(k)) despuesMap.set(k, row);
+  });
+
+  const aBlocks = datPrefBlockColumns(a.labels);
+  const aBlockByNum = {};
+  aBlocks.forEach(b => { aBlockByNum[b.block] = b; });
+  const aFi = a.labels.indexOf('Indicador fase');
+  const dFi = d.labels.indexOf('Indicador fase');
+
+  let changedCells = 0, mergedCount = 0, fallbackCount = 0;
+  const fallbackKeys = [];
+  const outRows = [];
+  const cellFormat = [];
+
+  a.rows.forEach(rowA => {
+    const k = buildKey(rowA, a.labels, keyLabels);
+    const rowD = despuesMap.get(k);
+
+    if (!rowD){
+      fallbackCount++;
+      fallbackKeys.push(rowLabel(a, rowA));
+      const single = correctTemplateRows({ labels: a.labels, rows: [rowA] });
+      outRows.push(single.rows[0]);
+      cellFormat.push(single.cellFormat[0]);
+      changedCells += single.changedCells;
+      return;
+    }
+
+    mergedCount++;
+    const isPhase = dFi !== -1 ? !isBlankCell(rowD[dFi]) : (aFi !== -1 && !isBlankCell(rowA[aFi]));
+    const newRow = a.labels.map((lbl, ci) => {
+      const di = d.labels.indexOf(lbl);
+      return di !== -1 ? rowD[di] : rowA[ci];
+    });
+    const rowFormat = {};
+
+    aBlocks.forEach(b => {
+      if (b.dp === -1) return;
+      const raw = rowA[b.dp];
+      let numVal;
+      if (isBlankCell(raw)) numVal = 0;
+      else if (typeof raw === 'number') numVal = raw;
+      else {
+        const s = String(raw).trim();
+        if (s === '-') numVal = 0;
+        else {
+          const n = parseFloat(s.replace(',', '.'));
+          numVal = isFinite(n) ? n : raw;
+        }
+      }
+      if (newRow[b.dp] !== numVal) changedCells++;
+      newRow[b.dp] = numVal;
+      rowFormat[b.dp] = (isPhase && b.block !== 6) ? 'dec1' : 'dec3';
+
+      if (b.block === 6){
+        if (b.unit !== -1 && !isBlankCell(newRow[b.unit])){ newRow[b.unit] = ''; changedCells++; }
+        if (b.clase !== -1 && !isBlankCell(newRow[b.clase])){ newRow[b.clase] = ''; changedCells++; }
+      }
+    });
+
+    outRows.push(newRow);
+    cellFormat.push(rowFormat);
+  });
+
+  return { rows: outRows, cellFormat, changedCells, mergedCount, fallbackCount, fallbackKeys };
+}
+
 const BUSINESS_RULES = [
   {
     id: 'datpref-2-a-5-iguales',
@@ -2485,7 +2571,7 @@ function refreshRunState(){
   const status = document.getElementById('statusLine');
   status.classList.remove('err');
 
-  document.getElementById('btnCorrectTemplate').disabled = !state.antes;
+  document.getElementById('btnCorrectTemplate').disabled = !state.antes || !state.despues;
 
   if (!state.antes || !state.despues){
     btn.disabled = true;
@@ -3692,12 +3778,12 @@ document.getElementById('btnExportReview').addEventListener('click', exportTempl
 --------------------------------------------------------------------- */
 
 function exportCorrectedTemplateToExcel(){
-  if (!state.antes) return;
-  const { rows, cellFormat, changedCells } = correctTemplateRows(state.antes);
+  if (!state.antes || !state.despues) return;
+  const { rows, cellFormat, changedCells, mergedCount, fallbackCount, fallbackKeys } = mergeCorrectedTemplateRows();
 
   // Cantidad base usa el mismo formato numérico (#,##0.000) que los DatPref
   // de 3 decimales en la plantilla de referencia — se marca aparte porque
-  // correctTemplateRows solo se ocupa de los bloques DatPref.
+  // el merge solo se ocupa explícitamente de los bloques DatPref.
   const qi = state.antes.labels.indexOf('Cantidad base');
   if (qi !== -1) cellFormat.forEach(rowFmt => { rowFmt[qi] = 'dec3'; });
 
@@ -3708,9 +3794,16 @@ function exportCorrectedTemplateToExcel(){
 
   const status = document.getElementById('statusLine');
   status.classList.remove('err');
-  status.textContent = 'Plantilla corregida exportada — ' + changedCells.toLocaleString('es') +
-    ' celda' + (changedCells === 1 ? '' : 's') + ' ajustada' + (changedCells === 1 ? '' : 's') +
-    ' en DatPref / Unidad valor prefij. / Clase de actividad.';
+  let msg = 'Plantilla corregida exportada — ' + mergedCount.toLocaleString('es') +
+    ' fila' + (mergedCount === 1 ? '' : 's') + ' fusionada' + (mergedCount === 1 ? '' : 's') + ' con el export SAP';
+  if (fallbackCount > 0){
+    msg += ', ' + fallbackCount.toLocaleString('es') + ' sin match (se usó la plantilla)';
+  }
+  msg += ' · ' + changedCells.toLocaleString('es') + ' celda' + (changedCells === 1 ? '' : 's') + ' de DatPref corregida' + (changedCells === 1 ? '' : 's') + '.';
+  status.textContent = msg;
+  if (fallbackCount > 0){
+    console.warn('Filas sin match en el export SAP (se usó la plantilla tal cual):', fallbackKeys);
+  }
 }
 
 document.getElementById('btnCorrectTemplate').addEventListener('click', exportCorrectedTemplateToExcel);
