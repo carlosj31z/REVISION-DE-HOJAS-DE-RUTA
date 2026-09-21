@@ -348,6 +348,12 @@
     padding:16px 18px;
     flex-wrap:wrap;
   }
+  .actions-row-buttons{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
   button.run{
     appearance:none;
     border:none;
@@ -1262,7 +1268,13 @@
 
     <div class="actions-row">
       <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
-      <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
+      <div class="actions-row-buttons">
+        <button class="btn-export" id="btnCorrectTemplate" disabled title="Corrige el formato de los DatPref de la plantilla 'Antes' para que SAP no los rechace">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          Corregir y exportar plantilla
+        </button>
+        <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
+      </div>
     </div>
   </section>
 
@@ -1895,6 +1907,101 @@ function rowLabel(parsed, row){
   return 'Grupo ' + g + '-' + c + ' · Operación ' + o;
 }
 
+/* ---------------------------------------------------------------------
+   3c) CORRECCIÓN DE PLANTILLA — formatea los DatPref al patrón exacto que
+   SAP exige (visto en su propia plantilla de referencia): las celdas deben
+   ser numéricas de verdad (no texto), con 3 decimales y sin Unidad/Clase en
+   las filas "cabecera" (sin Indicador fase), y 1 decimal con Unidad="HRA" y
+   Clase de actividad rellena (salvo el bloque 5, que nunca la lleva) en las
+   filas "fase". El bloque 6 (DatPref #6) siempre queda en 3 decimales y sin
+   Unidad/Clase, en cualquier tipo de fila — nunca se completa.
+--------------------------------------------------------------------- */
+
+const DATPREF_UNIT_DEFAULT = 'HRA';
+const DATPREF_CLASE_BY_BLOCK = ['MOD/HH', 'DEP/HM', 'BAS/HM', 'MAN/HM']; // bloques 1-4 únicamente
+
+function datPrefBlockColumns(labels){
+  const blocks = [];
+  for (let n = 1; n <= 6; n++){
+    const suffix = n === 1 ? '' : ' #' + n;
+    blocks.push({
+      block: n,
+      dp: labels.indexOf('DatPref' + suffix),
+      unit: labels.indexOf('Unidad valor prefij.' + suffix),
+      clase: labels.indexOf('Clase de actividad' + suffix),
+    });
+  }
+  return blocks;
+}
+
+function isBlankCell(v){
+  return v === '' || v === null || v === undefined || String(v).trim() === '';
+}
+
+// Corrige las filas de la plantilla "Antes": normaliza los valores DatPref
+// (blanco/guion -> 0, tipo numérico real) y ajusta qué columnas Unidad valor
+// prefij. / Clase de actividad deben estar vacías o rellenas según el patrón
+// de la plantilla oficial de SAP. No toca ningún otro valor de la fila.
+// Devuelve { rows, cellFormat, changedCells } donde cellFormat[rowIdx][colIdx]
+// es 'dec3' | 'dec1' | null, usado luego para exportar con el formato exacto.
+function correctTemplateRows(parsed){
+  const labels = parsed.labels;
+  const fi = labels.indexOf('Indicador fase');
+  const blocks = datPrefBlockColumns(labels);
+  let changedCells = 0;
+
+  const outRows = parsed.rows.map(row => {
+    const newRow = row.slice();
+    const isPhase = fi !== -1 && !isBlankCell(row[fi]);
+    const rowFormat = {};
+
+    blocks.forEach(b => {
+      if (b.dp === -1) return;
+      const raw = row[b.dp];
+      let numVal;
+      if (isBlankCell(raw)) numVal = 0;
+      else if (typeof raw === 'number') numVal = raw;
+      else {
+        const s = String(raw).trim();
+        if (s === '-') numVal = 0;
+        else {
+          const n = parseFloat(s.replace(',', '.'));
+          numVal = isFinite(n) ? n : raw; // texto realmente no numérico: se deja intacto
+        }
+      }
+      if (newRow[b.dp] !== numVal){ newRow[b.dp] = numVal; changedCells++; }
+
+      const isBlock6 = b.block === 6;
+      const wantsCompanions = isPhase && !isBlock6;
+      rowFormat[b.dp] = wantsCompanions ? 'dec1' : 'dec3';
+
+      if (b.unit !== -1){
+        if (!wantsCompanions){
+          if (!isBlankCell(newRow[b.unit])){ newRow[b.unit] = ''; changedCells++; }
+        } else if (isBlankCell(newRow[b.unit])){
+          newRow[b.unit] = DATPREF_UNIT_DEFAULT; changedCells++;
+        }
+      }
+      if (b.clase !== -1){
+        const wantsClase = wantsCompanions && b.block <= 4;
+        if (!wantsClase){
+          if (!isBlankCell(newRow[b.clase])){ newRow[b.clase] = ''; changedCells++; }
+        } else if (isBlankCell(newRow[b.clase])){
+          newRow[b.clase] = DATPREF_CLASE_BY_BLOCK[b.block - 1]; changedCells++;
+        }
+      }
+    });
+
+    return { row: newRow, format: rowFormat };
+  });
+
+  return {
+    rows: outRows.map(r => r.row),
+    cellFormat: outRows.map(r => r.format),
+    changedCells,
+  };
+}
+
 const BUSINESS_RULES = [
   {
     id: 'datpref-2-a-5-iguales',
@@ -2336,6 +2443,9 @@ function refreshRunState(){
   const btn = document.getElementById('btnRun');
   const status = document.getElementById('statusLine');
   status.classList.remove('err');
+
+  document.getElementById('btnCorrectTemplate').disabled = !state.antes;
+
   if (!state.antes || !state.despues){
     btn.disabled = true;
     status.textContent = 'Sube los dos archivos para comenzar.';
@@ -3112,7 +3222,7 @@ function colIndexToLetter(n){
 }
 
 // cellXfs style indices used across the exported workbook
-const XLSX_STYLE = { DEFAULT: 0, HEADER: 1, YELLOW: 2, GREEN: 3, RED: 4, LAVENDER: 5, GRAY: 6, ATTENTION: 7 };
+const XLSX_STYLE = { DEFAULT: 0, HEADER: 1, YELLOW: 2, GREEN: 3, RED: 4, LAVENDER: 5, GRAY: 6, ATTENTION: 7, DEC3: 8, DEC1: 9 };
 
 function buildSheetXml(headers, rows, rowStyleFn){
   let rowsXml = '';
@@ -3150,9 +3260,55 @@ function buildSheetXml(headers, rows, rowStyleFn){
     '</worksheet>';
 }
 
+// Like buildSheetXml, but styles are resolved per cell (via cellFormat, one
+// entry per row mapping colIndex -> 'dec3'|'dec1') instead of per row — used
+// for the corrected-plantilla export where DatPref columns need a specific
+// decimal format while every other column keeps the default style.
+function buildCorrectedTemplateSheetXml(headers, rows, cellFormat){
+  let rowsXml = '';
+
+  let headerCells = '';
+  headers.forEach((h, ci) => {
+    const ref = colIndexToLetter(ci) + '1';
+    headerCells += '<c r="' + ref + '" s="' + XLSX_STYLE.HEADER + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(h || '') + '</t></is></c>';
+  });
+  rowsXml += '<row r="1">' + headerCells + '</row>';
+
+  rows.forEach((row, ri) => {
+    const rNum = ri + 2;
+    const rowFormat = cellFormat[ri] || {};
+    let cells = '';
+    row.forEach((v, ci) => {
+      const ref = colIndexToLetter(ci) + rNum;
+      const fmt = rowFormat[ci];
+      const style = fmt === 'dec3' ? XLSX_STYLE.DEC3 : fmt === 'dec1' ? XLSX_STYLE.DEC1 : XLSX_STYLE.DEFAULT;
+      if (typeof v === 'number' && isFinite(v)){
+        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
+      } else if (v === '' || v === null || v === undefined){
+        cells += '<c r="' + ref + '" s="' + style + '"/>';
+      } else {
+        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
+      }
+    });
+    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
+  });
+
+  const colCount = headers.length;
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+    '<cols><col min="1" max="' + colCount + '" width="16" customWidth="1"/></cols>' +
+    '<sheetData>' + rowsXml + '</sheetData>' +
+    '</worksheet>';
+}
+
 function buildStylesXml(){
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<numFmts count="2">' +
+    '<numFmt numFmtId="164" formatCode="0.000"/>' +
+    '<numFmt numFmtId="165" formatCode="0.0"/>' +
+    '</numFmts>' +
     '<fonts count="2"><font><sz val="10.5"/><name val="Calibri"/></font><font><b/><sz val="10.5"/><name val="Calibri"/><color rgb="FF182129"/></font></fonts>' +
     '<fills count="9">' +
     '<fill><patternFill patternType="none"/></fill>' +
@@ -3167,7 +3323,7 @@ function buildStylesXml(){
     '</fills>' +
     '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="8">' +
+    '<cellXfs count="10">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>' +
@@ -3176,6 +3332,8 @@ function buildStylesXml(){
     '<xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="7" borderId="0" xfId="0" applyFill="1"/>' +
     '<xf numFmtId="0" fontId="0" fillId="8" borderId="0" xfId="0" applyFill="1"/>' +
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
     '</cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '</styleSheet>';
@@ -3452,6 +3610,26 @@ function exportTemplateReviewToExcel(){
 }
 
 document.getElementById('btnExportReview').addEventListener('click', exportTemplateReviewToExcel);
+
+/* ---------------------------------------------------------------------
+   9) EXPORT CORRECTED TEMPLATE — DatPref reformateados al patrón SAP
+--------------------------------------------------------------------- */
+
+function exportCorrectedTemplateToExcel(){
+  if (!state.antes) return;
+  const { rows, cellFormat, changedCells } = correctTemplateRows(state.antes);
+  const xml = buildCorrectedTemplateSheetXml(state.antes.headers, rows, cellFormat);
+  const bytes = buildExportWorkbook(['Plantilla corregida'], [xml]);
+  downloadWorkbook(bytes, 'plantilla-corregida-' + todayStamp() + '.xlsx');
+
+  const status = document.getElementById('statusLine');
+  status.classList.remove('err');
+  status.textContent = 'Plantilla corregida exportada — ' + changedCells.toLocaleString('es') +
+    ' celda' + (changedCells === 1 ? '' : 's') + ' ajustada' + (changedCells === 1 ? '' : 's') +
+    ' en DatPref / Unidad valor prefij. / Clase de actividad.';
+}
+
+document.getElementById('btnCorrectTemplate').addEventListener('click', exportCorrectedTemplateToExcel);
 
 })();
 </script>
