@@ -348,12 +348,6 @@
     padding:16px 18px;
     flex-wrap:wrap;
   }
-  .actions-row-buttons{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    flex-wrap:wrap;
-  }
   button.run{
     appearance:none;
     border:none;
@@ -1268,12 +1262,36 @@
 
     <div class="actions-row">
       <span class="status-line" id="statusLine">Sube los dos archivos para comenzar.</span>
-      <div class="actions-row-buttons">
-        <button class="btn-export" id="btnCorrectTemplate" disabled title="Fusiona la plantilla 'Antes' con el export de SAP 'Después': todo excepto los DatPref se toma tal cual de SAP, para que el formato de celda sea exactamente el que SAP espera">
+      <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
+    </div>
+  </section>
+
+  <section class="panel" id="correctPanel" style="display:none;">
+    <div class="review-head">
+      <div>
+        <h2 class="review-title">Corregir plantilla</h2>
+        <p class="review-sub">Toma como base el último export de SAP subido abajo — <b>todas las columnas se copian tal cual de ese archivo</b>, sin tocar su formato de celda. Solo se reemplazan los valores DatPref con los de la plantilla (<b id="correctAntesFileName"></b>), y solo para las hojas de ruta / contadores que aparecen ahí.</p>
+      </div>
+    </div>
+    <div style="padding:0 18px 18px;">
+      <div class="upload-grid" style="max-width:480px; margin:0 0 14px;">
+        <div class="dropzone" id="dzSapBase" data-slot="sapBase">
+          <div class="dz-head">
+            <span class="dz-label">Export SAP</span>
+            <span class="dz-tag despues">Se usa como base</span>
+          </div>
+          <div class="dz-title">Último export de SAP</div>
+          <div class="dz-sub">El Excel que SAP entrega — de ahí sale el formato exacto de todas las columnas (.xlsx)</div>
+          <div class="dz-file" id="fileSapBase" style="display:none;"></div>
+          <input type="file" id="inputSapBase" accept=".xlsx" />
+        </div>
+      </div>
+      <div class="actions-row" style="padding:0;">
+        <span class="status-line" id="correctStatusLine">Sube el export de SAP para generar la plantilla corregida.</span>
+        <button class="btn-export" id="btnCorrectTemplate" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           Corregir y exportar plantilla
         </button>
-        <button class="run" id="btnRun" disabled>Comparar hojas de ruta</button>
       </div>
     </div>
   </section>
@@ -1625,6 +1643,7 @@ async function parseXlsx(arrayBuffer){
 const state = {
   antes: null,   // { fileName, headers, labels, rows: [ {...values by header index} ] }
   despues: null,
+  sapBase: null, // export de SAP usado como base para "Corregir plantilla" (incluye buffer crudo)
   keyIndices: [],
   highlightIndices: [],
   compare: null, // computed diff result
@@ -1656,12 +1675,18 @@ function toParsed(fileName, sheetName, gridRaw){
   return { fileName, sheetName, headers, labels, rows };
 }
 
+const SLOT_IDS = {
+  antes: { dz: 'dzAntes', input: 'inputAntes', file: 'fileAntes' },
+  despues: { dz: 'dzDespues', input: 'inputDespues', file: 'fileDespues' },
+  sapBase: { dz: 'dzSapBase', input: 'inputSapBase', file: 'fileSapBase' },
+};
+
 function setDropzoneState(slot, mode, text){
-  const dz = document.getElementById(slot === 'antes' ? 'dzAntes' : 'dzDespues');
+  const dz = document.getElementById(SLOT_IDS[slot].dz);
   dz.classList.remove('has-file', 'has-error');
   if (mode === 'file') dz.classList.add('has-file');
   if (mode === 'error') dz.classList.add('has-error');
-  const fileBox = document.getElementById(slot === 'antes' ? 'fileAntes' : 'fileDespues');
+  const fileBox = document.getElementById(SLOT_IDS[slot].file);
   if (text){
     fileBox.style.display = 'flex';
     fileBox.innerHTML = text;
@@ -1680,6 +1705,9 @@ async function handleFile(slot, file){
     if (!parsed.headers.length){
       throw new Error('No se detectaron encabezados en la primera fila.');
     }
+    // el buffer crudo se conserva para poder reconstruir el xlsx corregido
+    // reutilizando byte a byte todo lo que no sean los DatPref (ver sección 9).
+    parsed.buffer = buf;
     state[slot] = parsed;
     const rowCount = parsed.rows.length;
     setDropzoneState(slot, 'file',
@@ -1690,6 +1718,7 @@ async function handleFile(slot, file){
   }
   refreshConfigPanel();
   refreshRunState();
+  refreshCorrectPanel();
   if (slot === 'antes') renderTemplateReview();
 }
 
@@ -1697,9 +1726,9 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-['antes','despues'].forEach(slot => {
-  const dz = document.getElementById(slot === 'antes' ? 'dzAntes' : 'dzDespues');
-  const input = document.getElementById(slot === 'antes' ? 'inputAntes' : 'inputDespues');
+Object.keys(SLOT_IDS).forEach(slot => {
+  const dz = document.getElementById(SLOT_IDS[slot].dz);
+  const input = document.getElementById(SLOT_IDS[slot].input);
   dz.addEventListener('click', () => input.click());
   input.addEventListener('change', e => handleFile(slot, e.target.files[0]));
   ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, e => {
@@ -1908,17 +1937,10 @@ function rowLabel(parsed, row){
 }
 
 /* ---------------------------------------------------------------------
-   3c) CORRECCIÓN DE PLANTILLA — formatea los DatPref al patrón exacto que
-   SAP exige (visto en su propia plantilla de referencia): las celdas deben
-   ser numéricas de verdad (no texto), con 3 decimales y sin Unidad/Clase en
-   las filas "cabecera" (sin Indicador fase), y 1 decimal con Unidad="HRA" y
-   Clase de actividad rellena (salvo el bloque 5, que nunca la lleva) en las
-   filas "fase". El bloque 6 (DatPref #6) siempre queda en 3 decimales y sin
-   Unidad/Clase, en cualquier tipo de fila — nunca se completa.
+   3c) CORRECCIÓN DE PLANTILLA — helpers para ubicar los bloques DatPref
+   dentro de una fila (usado tanto por las reglas de negocio como por el
+   corrector de plantilla en la sección 9).
 --------------------------------------------------------------------- */
-
-const DATPREF_UNIT_DEFAULT = 'HRA';
-const DATPREF_CLASE_BY_BLOCK = ['MOD/HH', 'DEP/HM', 'BAS/HM', 'MAN/HM']; // bloques 1-4 únicamente
 
 function datPrefBlockColumns(labels){
   const blocks = [];
@@ -1937,198 +1959,6 @@ function datPrefBlockColumns(labels){
 function isBlankCell(v){
   return v === '' || v === null || v === undefined || String(v).trim() === '';
 }
-
-// Anchos de columna (en unidades de carácter de Excel) tomados exactamente
-// de la plantilla oficial que exporta SAP, para que el archivo corregido se
-// vea idéntico. Las columnas base se mapean por nombre; los bloques DatPref
-// se mapean por número de bloque ya que su encabezado se repite igual en los 6.
-const EXACT_BASE_WIDTHS = {
-  'Grupo hojas ruta': 12,
-  'Cont.grupo HRuta': 11,
-  'Descripción': 39,
-  'Operación': 11,
-  'Indicador fase': 10,
-  'Operación Superior': 6,
-  'Puesto de trabajo': 19,
-  'Texto breve operación': 23,
-  'Cantidad base': 15,
-  'Unidad medida op.': 12,
-};
-const EXACT_BLOCK_WIDTHS = {
-  1: { dp: 9, unit: 14, clase: 8 },
-  2: { dp: 9, unit: 14, clase: 8 },
-  3: { dp: 9, unit: 14, clase: 8 },
-  4: { dp: 9, unit: 14, clase: 8 },
-  5: { dp: 9, unit: 14, clase: 20 },
-  6: { dp: 9, unit: 22, clase: 20 },
-};
-const EXACT_WIDTH_FALLBACK = 16;
-
-function computeExactColumnWidths(labels){
-  const widths = new Array(labels.length).fill(EXACT_WIDTH_FALLBACK);
-  labels.forEach((lbl, i) => {
-    if (EXACT_BASE_WIDTHS[lbl] !== undefined) widths[i] = EXACT_BASE_WIDTHS[lbl];
-  });
-  datPrefBlockColumns(labels).forEach(b => {
-    const w = EXACT_BLOCK_WIDTHS[b.block];
-    if (!w) return;
-    if (b.dp !== -1) widths[b.dp] = w.dp;
-    if (b.unit !== -1) widths[b.unit] = w.unit;
-    if (b.clase !== -1) widths[b.clase] = w.clase;
-  });
-  return widths;
-}
-
-// Corrige las filas de la plantilla "Antes": normaliza los valores DatPref
-// (blanco/guion -> 0, tipo numérico real) y ajusta qué columnas Unidad valor
-// prefij. / Clase de actividad deben estar vacías o rellenas según el patrón
-// de la plantilla oficial de SAP. No toca ningún otro valor de la fila.
-// Devuelve { rows, cellFormat, changedCells } donde cellFormat[rowIdx][colIdx]
-// es 'dec3' | 'dec1' | null, usado luego para exportar con el formato exacto.
-function correctTemplateRows(parsed){
-  const labels = parsed.labels;
-  const fi = labels.indexOf('Indicador fase');
-  const blocks = datPrefBlockColumns(labels);
-  let changedCells = 0;
-
-  const outRows = parsed.rows.map(row => {
-    const newRow = row.slice();
-    const isPhase = fi !== -1 && !isBlankCell(row[fi]);
-    const rowFormat = {};
-
-    blocks.forEach(b => {
-      if (b.dp === -1) return;
-      const raw = row[b.dp];
-      let numVal;
-      if (isBlankCell(raw)) numVal = 0;
-      else if (typeof raw === 'number') numVal = raw;
-      else {
-        const s = String(raw).trim();
-        if (s === '-') numVal = 0;
-        else {
-          const n = parseFloat(s.replace(',', '.'));
-          numVal = isFinite(n) ? n : raw; // texto realmente no numérico: se deja intacto
-        }
-      }
-      if (newRow[b.dp] !== numVal){ newRow[b.dp] = numVal; changedCells++; }
-
-      const isBlock6 = b.block === 6;
-      const wantsCompanions = isPhase && !isBlock6;
-      rowFormat[b.dp] = wantsCompanions ? 'dec1' : 'dec3';
-
-      if (b.unit !== -1){
-        if (!wantsCompanions){
-          if (!isBlankCell(newRow[b.unit])){ newRow[b.unit] = ''; changedCells++; }
-        } else if (isBlankCell(newRow[b.unit])){
-          newRow[b.unit] = DATPREF_UNIT_DEFAULT; changedCells++;
-        }
-      }
-      if (b.clase !== -1){
-        const wantsClase = wantsCompanions && b.block <= 4;
-        if (!wantsClase){
-          if (!isBlankCell(newRow[b.clase])){ newRow[b.clase] = ''; changedCells++; }
-        } else if (isBlankCell(newRow[b.clase])){
-          newRow[b.clase] = DATPREF_CLASE_BY_BLOCK[b.block - 1]; changedCells++;
-        }
-      }
-    });
-
-    return { row: newRow, format: rowFormat };
-  });
-
-  return {
-    rows: outRows.map(r => r.row),
-    cellFormat: outRows.map(r => r.format),
-    changedCells,
-  };
-}
-
-// Fusiona la plantilla "Antes" (que trae los DatPref corregidos que se
-// quieren aplicar) con el export real de SAP subido como "Después": para
-// cada fila de la plantilla (emparejada por la misma clave que usa la
-// comparación, normalmente Grupo hojas ruta + Cont.grupo HRuta + Operación),
-// TODAS las columnas —incluyendo Unidad valor prefij. y Clase de
-// actividad— se toman tal cual del export de SAP (formato garantizado
-// correcto porque SAP mismo lo generó); solo el valor numérico de cada
-// DatPref se sobreescribe con el de la plantilla. El bloque 6 (DatPref #6)
-// nunca lleva Unidad/Clase, se fuerce lo que se fuerce desde SAP. Si una
-// fila de la plantilla no tiene par en el export de SAP, se usa la fila de
-// la plantilla tal cual (con la misma corrección de formato de siempre) y
-// se cuenta aparte para que el usuario la revise.
-function mergeCorrectedTemplateRows(){
-  const a = state.antes, d = state.despues;
-  const keyLabels = state.keyIndices.map(i => a.labels[i]);
-
-  const despuesMap = new Map();
-  d.rows.forEach(row => {
-    const k = buildKey(row, d.labels, keyLabels);
-    if (!despuesMap.has(k)) despuesMap.set(k, row);
-  });
-
-  const aBlocks = datPrefBlockColumns(a.labels);
-  const aBlockByNum = {};
-  aBlocks.forEach(b => { aBlockByNum[b.block] = b; });
-  const aFi = a.labels.indexOf('Indicador fase');
-  const dFi = d.labels.indexOf('Indicador fase');
-
-  let changedCells = 0, mergedCount = 0, fallbackCount = 0;
-  const fallbackKeys = [];
-  const outRows = [];
-  const cellFormat = [];
-
-  a.rows.forEach(rowA => {
-    const k = buildKey(rowA, a.labels, keyLabels);
-    const rowD = despuesMap.get(k);
-
-    if (!rowD){
-      fallbackCount++;
-      fallbackKeys.push(rowLabel(a, rowA));
-      const single = correctTemplateRows({ labels: a.labels, rows: [rowA] });
-      outRows.push(single.rows[0]);
-      cellFormat.push(single.cellFormat[0]);
-      changedCells += single.changedCells;
-      return;
-    }
-
-    mergedCount++;
-    const isPhase = dFi !== -1 ? !isBlankCell(rowD[dFi]) : (aFi !== -1 && !isBlankCell(rowA[aFi]));
-    const newRow = a.labels.map((lbl, ci) => {
-      const di = d.labels.indexOf(lbl);
-      return di !== -1 ? rowD[di] : rowA[ci];
-    });
-    const rowFormat = {};
-
-    aBlocks.forEach(b => {
-      if (b.dp === -1) return;
-      const raw = rowA[b.dp];
-      let numVal;
-      if (isBlankCell(raw)) numVal = 0;
-      else if (typeof raw === 'number') numVal = raw;
-      else {
-        const s = String(raw).trim();
-        if (s === '-') numVal = 0;
-        else {
-          const n = parseFloat(s.replace(',', '.'));
-          numVal = isFinite(n) ? n : raw;
-        }
-      }
-      if (newRow[b.dp] !== numVal) changedCells++;
-      newRow[b.dp] = numVal;
-      rowFormat[b.dp] = (isPhase && b.block !== 6) ? 'dec1' : 'dec3';
-
-      if (b.block === 6){
-        if (b.unit !== -1 && !isBlankCell(newRow[b.unit])){ newRow[b.unit] = ''; changedCells++; }
-        if (b.clase !== -1 && !isBlankCell(newRow[b.clase])){ newRow[b.clase] = ''; changedCells++; }
-      }
-    });
-
-    outRows.push(newRow);
-    cellFormat.push(rowFormat);
-  });
-
-  return { rows: outRows, cellFormat, changedCells, mergedCount, fallbackCount, fallbackKeys };
-}
-
 const BUSINESS_RULES = [
   {
     id: 'datpref-2-a-5-iguales',
@@ -2571,8 +2401,6 @@ function refreshRunState(){
   const status = document.getElementById('statusLine');
   status.classList.remove('err');
 
-  document.getElementById('btnCorrectTemplate').disabled = !state.antes || !state.despues;
-
   if (!state.antes || !state.despues){
     btn.disabled = true;
     status.textContent = 'Sube los dos archivos para comenzar.';
@@ -2587,6 +2415,25 @@ function refreshRunState(){
   btn.disabled = false;
   status.textContent = state.antes.rows.length.toLocaleString('es') + ' filas en plantilla · ' +
     state.despues.rows.length.toLocaleString('es') + ' filas en export SAP. Listo para comparar.';
+}
+
+function refreshCorrectPanel(){
+  const panel = document.getElementById('correctPanel');
+  const btn = document.getElementById('btnCorrectTemplate');
+  const status = document.getElementById('correctStatusLine');
+  if (!state.antes){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  document.getElementById('correctAntesFileName').textContent = state.antes.fileName;
+
+  status.classList.remove('err');
+  if (!state.sapBase){
+    btn.disabled = true;
+    status.textContent = 'Sube el export de SAP para generar la plantilla corregida.';
+    return;
+  }
+  btn.disabled = false;
+  status.textContent = state.antes.rows.length.toLocaleString('es') + ' filas en la plantilla · ' +
+    state.sapBase.rows.length.toLocaleString('es') + ' filas en el export SAP. Listo para corregir.';
 }
 
 /* ---------------------------------------------------------------------
@@ -3387,83 +3234,6 @@ function buildSheetXml(headers, rows, rowStyleFn){
     '</worksheet>';
 }
 
-// Local style indices for the "exact plantilla" styles.xml built by
-// buildExactPlantillaStylesXml — independent from XLSX_STYLE, which belongs
-// to the shared styles.xml used by the other exports (different font/fills).
-const EXACT_STYLE = { DEFAULT: 0, HEADER: 1, DEC3: 2, DEC1: 3 };
-
-function buildExactPlantillaStylesXml(){
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<numFmts count="2">' +
-    '<numFmt numFmtId="164" formatCode="#,##0.000"/>' +
-    '<numFmt numFmtId="165" formatCode="#,##0.0"/>' +
-    '</numFmts>' +
-    '<fonts count="1"><font><sz val="10"/><name val="Arial"/></font></fonts>' +
-    // fillId 0 (none) and 1 (gray125) are Excel's two reserved built-in
-    // fills — a custom fill must start at index 2, never reuse index 1.
-    '<fills count="3">' +
-    '<fill><patternFill patternType="none"/></fill>' +
-    '<fill><patternFill patternType="gray125"/></fill>' +
-    '<fill><patternFill patternType="solid"><fgColor rgb="FFC0C0C0"/><bgColor indexed="64"/></patternFill></fill>' +
-    '</fills>' +
-    '<borders count="2">' +
-    '<border><left/><right/><top/><bottom/><diagonal/></border>' +
-    '<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>' +
-    '</borders>' +
-    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="4">' +
-    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top"/></xf>' +
-    '<xf numFmtId="0" fontId="0" fillId="2" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>' +
-    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>' +
-    '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf>' +
-    '</cellXfs>' +
-    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
-    '</styleSheet>';
-}
-
-// Styles are resolved per cell (via cellFormat, one entry per row mapping
-// colIndex -> 'dec3'|'dec1') instead of per row, and column widths come from
-// computeExactColumnWidths — together these reproduce the SAP reference
-// plantilla's exact cell formatting (font, fills, borders, alignment,
-// number formats and column widths), not just the DatPref decimal places.
-function buildCorrectedTemplateSheetXml(headers, rows, cellFormat, colWidths){
-  let rowsXml = '';
-
-  let headerCells = '';
-  headers.forEach((h, ci) => {
-    const ref = colIndexToLetter(ci) + '1';
-    headerCells += '<c r="' + ref + '" s="' + EXACT_STYLE.HEADER + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(h || '') + '</t></is></c>';
-  });
-  rowsXml += '<row r="1">' + headerCells + '</row>';
-
-  rows.forEach((row, ri) => {
-    const rNum = ri + 2;
-    const rowFormat = cellFormat[ri] || {};
-    let cells = '';
-    row.forEach((v, ci) => {
-      const ref = colIndexToLetter(ci) + rNum;
-      const fmt = rowFormat[ci];
-      const style = fmt === 'dec3' ? EXACT_STYLE.DEC3 : fmt === 'dec1' ? EXACT_STYLE.DEC1 : EXACT_STYLE.DEFAULT;
-      if (typeof v === 'number' && isFinite(v)){
-        cells += '<c r="' + ref + '" s="' + style + '"><v>' + v + '</v></c>';
-      } else if (v === '' || v === null || v === undefined){
-        cells += '<c r="' + ref + '" s="' + style + '"/>';
-      } else {
-        cells += '<c r="' + ref + '" s="' + style + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(v) + '</t></is></c>';
-      }
-    });
-    rowsXml += '<row r="' + rNum + '">' + cells + '</row>';
-  });
-
-  const colsXml = colWidths.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join('');
-  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<cols>' + colsXml + '</cols>' +
-    '<sheetData>' + rowsXml + '</sheetData>' +
-    '</worksheet>';
-}
-
 function buildStylesXml(){
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
@@ -3510,7 +3280,7 @@ function buildWorkbookXml(sheetNames){
     '<sheets>' + sheets + '</sheets></workbook>';
 }
 
-function buildExportWorkbook(sheetNames, sheetsData, stylesXml){
+function buildExportWorkbook(sheetNames, sheetsData){
   const enc = new TextEncoder();
   const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -3537,7 +3307,7 @@ function buildExportWorkbook(sheetNames, sheetsData, stylesXml){
     { path: '_rels/.rels', data: enc.encode(rootRels) },
     { path: 'xl/workbook.xml', data: enc.encode(buildWorkbookXml(sheetNames)) },
     { path: 'xl/_rels/workbook.xml.rels', data: enc.encode(wbRels) },
-    { path: 'xl/styles.xml', data: enc.encode(stylesXml || buildStylesXml()) },
+    { path: 'xl/styles.xml', data: enc.encode(buildStylesXml()) },
   ];
   sheetsData.forEach((xml, i) => {
     files.push({ path: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: enc.encode(xml) });
@@ -3774,36 +3544,211 @@ function exportTemplateReviewToExcel(){
 document.getElementById('btnExportReview').addEventListener('click', exportTemplateReviewToExcel);
 
 /* ---------------------------------------------------------------------
-   9) EXPORT CORRECTED TEMPLATE — DatPref reformateados al patrón SAP
+   9) CORRECTED TEMPLATE — reconstruye el xlsx del export de SAP byte a
+   byte, parcheando en el XML crudo únicamente el <v> de las celdas
+   DatPref. Todo lo demás (estilos, texto, tipos de celda, sharedStrings,
+   workbook.xml, anchos de columna...) queda exactamente igual a como SAP
+   lo entregó, porque literalmente son las mismas partes del zip original
+   sin volver a generarlas — así se evita cualquier diferencia de formato
+   que SAP pueda rechazar en columnas que no son DatPref.
 --------------------------------------------------------------------- */
 
-function exportCorrectedTemplateToExcel(){
-  if (!state.antes || !state.despues) return;
-  const { rows, cellFormat, changedCells, mergedCount, fallbackCount, fallbackKeys } = mergeCorrectedTemplateRows();
+async function getEntryBytes(zip, name){
+  const entry = zip[name];
+  if (!entry) return new Uint8Array(0);
+  if (entry.compMethod === 0) return entry.data;
+  if (entry.compMethod === 8) return await inflateRaw(entry.data);
+  throw new Error('Método de compresión no soportado en el .xlsx (' + entry.compMethod + ').');
+}
 
-  // Cantidad base usa el mismo formato numérico (#,##0.000) que los DatPref
-  // de 3 decimales en la plantilla de referencia — se marca aparte porque
-  // el merge solo se ocupa explícitamente de los bloques DatPref.
-  const qi = state.antes.labels.indexOf('Cantidad base');
-  if (qi !== -1) cellFormat.forEach(rowFmt => { rowFmt[qi] = 'dec3'; });
-
-  const colWidths = computeExactColumnWidths(state.antes.labels);
-  const xml = buildCorrectedTemplateSheetXml(state.antes.headers, rows, cellFormat, colWidths);
-  const bytes = buildExportWorkbook(['Plantilla corregida'], [xml], buildExactPlantillaStylesXml());
-  downloadWorkbook(bytes, 'plantilla-corregida-' + todayStamp() + '.xlsx');
-
-  const status = document.getElementById('statusLine');
-  status.classList.remove('err');
-  let msg = 'Plantilla corregida exportada — ' + mergedCount.toLocaleString('es') +
-    ' fila' + (mergedCount === 1 ? '' : 's') + ' fusionada' + (mergedCount === 1 ? '' : 's') + ' con el export SAP';
-  if (fallbackCount > 0){
-    msg += ', ' + fallbackCount.toLocaleString('es') + ' sin match (se usó la plantilla)';
+// Misma resolución de hoja que usa parseXlsx (workbook.xml + rels), para
+// saber qué entrada del zip corresponde a la primera hoja del export.
+async function resolveFirstSheetPath(zip){
+  const wbXml = await getEntryText(zip, 'xl/workbook.xml');
+  if (!wbXml) return 'xl/worksheets/sheet1.xml';
+  const relsXml = await getEntryText(zip, 'xl/_rels/workbook.xml.rels');
+  const doc = new DOMParser().parseFromString(wbXml, 'application/xml');
+  const relMap = {};
+  if (relsXml){
+    const rdoc = new DOMParser().parseFromString(relsXml, 'application/xml');
+    const relNodes = rdoc.getElementsByTagName('Relationship');
+    for (let i = 0; i < relNodes.length; i++) relMap[relNodes[i].getAttribute('Id')] = relNodes[i].getAttribute('Target');
   }
-  msg += ' · ' + changedCells.toLocaleString('es') + ' celda' + (changedCells === 1 ? '' : 's') + ' de DatPref corregida' + (changedCells === 1 ? '' : 's') + '.';
-  status.textContent = msg;
-  if (fallbackCount > 0){
-    console.warn('Filas sin match en el export SAP (se usó la plantilla tal cual):', fallbackKeys);
+  const sheetNodes = doc.getElementsByTagName('sheet');
+  if (!sheetNodes.length) return 'xl/worksheets/sheet1.xml';
+  const rid = sheetNodes[0].getAttribute('r:id') || sheetNodes[0].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+  let target = relMap[rid] || 'worksheets/sheet1.xml';
+  if (target.startsWith('/')) target = target.slice(1);
+  else target = 'xl/' + target.replace(/^\.?\//, '');
+  return target;
+}
+
+// Sobreescribe el <v> de la celda "ref" (p. ej. "K5") dentro del XML crudo
+// de una fila, conservando su atributo de estilo (s="N") tal cual estaba
+// — nunca se toca el estilo, solo el valor numérico.
+function patchCellValue(rowXml, ref, newValue){
+  const cellRe = /<c\b[^>]*(?:\/>|>[\s\S]*?<\/c>)/g;
+  let m;
+  while ((m = cellRe.exec(rowXml)) !== null){
+    const tag = m[0];
+    const rMatch = /\br="([^"]+)"/.exec(tag);
+    if (rMatch && rMatch[1] === ref){
+      const sMatch = /\bs="(\d+)"/.exec(tag);
+      const sAttr = sMatch ? ' s="' + sMatch[1] + '"' : '';
+      const newCell = '<c r="' + ref + '"' + sAttr + '><v>' + newValue + '</v></c>';
+      return rowXml.slice(0, m.index) + newCell + rowXml.slice(m.index + tag.length);
+    }
   }
+  return rowXml; // la celda no existe en la fila (muy raro) — se deja intacta
+}
+
+// Reempaqueta el xlsx base reutilizando byte a byte cada parte del zip
+// original, salvo la hoja indicada, que se reemplaza por newSheetXml.
+async function buildCorrectedWorkbookFromBase(baseBuffer, sheetPath, newSheetXml){
+  const zip = await unzip(baseBuffer);
+  const enc = new TextEncoder();
+  const files = [];
+  for (const name in zip){
+    if (name === sheetPath){
+      files.push({ path: name, data: enc.encode(newSheetXml) });
+    } else {
+      files.push({ path: name, data: await getEntryBytes(zip, name) });
+    }
+  }
+  return zipStore(files);
+}
+
+// Fusiona la plantilla "Antes" (DatPref con el cambio que se quiere aplicar)
+// con el export de SAP subido como base: se conserva el archivo de SAP tal
+// cual, se recortan las filas cuya hoja de ruta + contador no aparece en la
+// plantilla, y solo se sobreescribe el valor de los DatPref en las filas
+// cuya clave completa (hoja de ruta + contador + operación) sí coincide.
+async function buildCorrectedTemplateFromBase(){
+  const antes = state.antes, base = state.sapBase;
+  const keyLabels = state.keyIndices.map(i => antes.labels[i]);
+
+  const aGi = antes.labels.indexOf('Grupo hojas ruta');
+  const aCi = antes.labels.indexOf('Cont.grupo HRuta');
+  const scopeSet = new Set();
+  if (aGi !== -1 && aCi !== -1){
+    antes.rows.forEach(r => scopeSet.add(String(r[aGi] ?? '').trim() + '␟' + String(r[aCi] ?? '').trim()));
+  }
+
+  const antesMap = new Map();
+  antes.rows.forEach(r => antesMap.set(buildKey(r, antes.labels, keyLabels), r));
+
+  const bGi = base.labels.indexOf('Grupo hojas ruta');
+  const bCi = base.labels.indexOf('Cont.grupo HRuta');
+  const baseBlocks = datPrefBlockColumns(base.labels);
+
+  const zip = await unzip(base.buffer);
+  const sheetPath = await resolveFirstSheetPath(zip);
+  const rawSheetXml = await getEntryText(zip, sheetPath);
+
+  const sdMatch = /<sheetData>([\s\S]*?)<\/sheetData>/.exec(rawSheetXml);
+  if (!sdMatch) throw new Error('No se pudo leer la hoja del export de SAP.');
+
+  const rowRe = /<row\b[^>]*(?:\/>|>[\s\S]*?<\/row>)/g;
+  const rowBlocks = sdMatch[1].match(rowRe) || [];
+
+  let keptCount = 0, patchedRowCount = 0, changedCells = 0, maxKeptRowNum = 1;
+  const baseHrSet = new Set();
+  const outBlocks = [];
+
+  rowBlocks.forEach(block => {
+    const rNumMatch = /\br="(\d+)"/.exec(block);
+    const rNum = rNumMatch ? parseInt(rNumMatch[1], 10) : null;
+    if (rNum === null || rNum === 1){
+      outBlocks.push(block); // encabezado u otra fila sin número reconocible: se conserva
+      return;
+    }
+    const dataIdx = rNum - 2;
+    if (dataIdx < 0 || dataIdx >= base.rows.length) return; // fila vacía sobrante al final: se descarta
+    const rowVals = base.rows[dataIdx];
+
+    if (bGi === -1 || bCi === -1){ outBlocks.push(block); maxKeptRowNum = rNum; return; } // no se puede acotar por alcance: se conserva tal cual
+
+    const hrKey = String(rowVals[bGi] ?? '').trim() + '␟' + String(rowVals[bCi] ?? '').trim();
+    baseHrSet.add(hrKey);
+    if (!scopeSet.has(hrKey)) return; // hoja de ruta / contador que no está en la plantilla: se excluye
+
+    keptCount++;
+    maxKeptRowNum = rNum;
+    const fullKey = buildKey(rowVals, base.labels, keyLabels);
+    const antesRow = antesMap.get(fullKey);
+    if (!antesRow){ outBlocks.push(block); return; } // misma hoja de ruta, pero esta operación no se tocó
+
+    let patchedBlock = block;
+    let rowChanged = false;
+    baseBlocks.forEach(b => {
+      if (b.dp === -1) return;
+      const raw = antesRow[b.dp];
+      let numVal;
+      if (isBlankCell(raw)) numVal = 0;
+      else if (typeof raw === 'number') numVal = raw;
+      else {
+        const s = String(raw).trim();
+        if (s === '-') numVal = 0;
+        else { const n = parseFloat(s.replace(',', '.')); numVal = isFinite(n) ? n : null; }
+      }
+      if (numVal === null) return; // texto realmente no numérico en la plantilla: se deja el valor de SAP
+
+      const ref = colIndexToLetter(b.dp) + rNum;
+      patchedBlock = patchCellValue(patchedBlock, ref, numVal);
+      if (normVal(rowVals[b.dp]) !== normVal(numVal)){ changedCells++; rowChanged = true; }
+    });
+    if (rowChanged) patchedRowCount++;
+    outBlocks.push(patchedBlock);
+  });
+
+  let newSheetXml = rawSheetXml.slice(0, sdMatch.index) +
+    '<sheetData>' + outBlocks.join('') + '</sheetData>' +
+    rawSheetXml.slice(sdMatch.index + sdMatch[0].length);
+
+  // La etiqueta <dimension> es solo informativa (Excel/SAP la ignoran si no
+  // coincide), pero se actualiza igual para no dejar ningún rastro del
+  // tamaño original del export una vez recortado a las hojas de ruta en alcance.
+  const dimMatch = /<dimension\s+ref="[A-Z]+\d+:([A-Z]+)\d+"\s*\/>/.exec(newSheetXml);
+  if (dimMatch){
+    newSheetXml = newSheetXml.replace(dimMatch[0], '<dimension ref="A1:' + dimMatch[1] + maxKeptRowNum + '"/>');
+  }
+
+  const missingKeys = [];
+  scopeSet.forEach(k => { if (!baseHrSet.has(k)) missingKeys.push(k); });
+
+  const bytes = await buildCorrectedWorkbookFromBase(base.buffer, sheetPath, newSheetXml);
+  return { bytes, keptCount, patchedRowCount, changedCells, missingKeys };
+}
+
+async function exportCorrectedTemplateToExcel(){
+  if (!state.antes || !state.sapBase) return;
+  const btn = document.getElementById('btnCorrectTemplate');
+  const status = document.getElementById('correctStatusLine');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generando…';
+  try {
+    const { bytes, keptCount, patchedRowCount, changedCells, missingKeys } = await buildCorrectedTemplateFromBase();
+    downloadWorkbook(bytes, 'plantilla-corregida-' + todayStamp() + '.xlsx');
+
+    let msg = keptCount.toLocaleString('es') + ' fila' + (keptCount === 1 ? '' : 's') +
+      ' incluida' + (keptCount === 1 ? '' : 's') + ' (base = export de SAP), ' +
+      patchedRowCount.toLocaleString('es') + ' con DatPref corregido (' +
+      changedCells.toLocaleString('es') + ' celda' + (changedCells === 1 ? '' : 's') + ').';
+    if (missingKeys.length){
+      msg += ' ' + missingKeys.length.toLocaleString('es') + ' hoja' + (missingKeys.length === 1 ? '' : 's') +
+        ' de ruta de la plantilla no está' + (missingKeys.length === 1 ? '' : 'n') +
+        ' en el export de SAP y no se ' + (missingKeys.length === 1 ? 'incluyó' : 'incluyeron') + '.';
+      console.warn('Hojas de ruta de la plantilla sin ninguna fila en el export de SAP (no incluidas):', missingKeys);
+    }
+    status.classList.remove('err');
+    status.textContent = msg;
+  } catch (err) {
+    status.classList.add('err');
+    status.textContent = 'Error al generar la plantilla corregida: ' + (err.message || err);
+  }
+  btn.disabled = false;
+  btn.innerHTML = originalHtml;
 }
 
 document.getElementById('btnCorrectTemplate').addEventListener('click', exportCorrectedTemplateToExcel);
